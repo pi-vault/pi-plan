@@ -1,0 +1,59 @@
+{
+  "name": "@pi-vault/pi-plan",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Pi extension that enables plan mode",
+  "author": "Lanh Hoang <lanhhoang@users.noreply.github.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/pi-vault/pi-plan#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pi-vault/pi-plan.git"
+  },
+  "bugs": {
+    "url": "https://github.com/pi-vault/pi-plan/issues"
+  },
+  "keywords": [
+    "pi",
+    "pi-package",
+    "pi-extension",
+    "pi-plan",
+    "plan-mode"
+  ],
+  "scripts": {
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "biome lint . && tsc --noEmit && vitest run",
+    "pack:dry-run": "pnpm pack --dry-run"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "files": [
+    "src",
+    "docs/assets",
+    "LICENSE",
+    "CHANGELOG.md",
+    "README.md"
+  ],
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.0",
+    "@earendil-works/pi-coding-agent": "^0.79.9",
+    "@earendil-works/pi-tui": "^0.79.9",
+    "@types/node": "^26.0.0",
+    "typebox": "^1.3.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  }
+}
