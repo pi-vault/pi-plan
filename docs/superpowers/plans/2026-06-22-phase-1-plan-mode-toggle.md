@@ -33,13 +33,11 @@ export interface PlanModeState {
   awaitingAction: boolean;
   selectedToolNames: string[] | undefined;
 }
-
-export interface SessionEntry {
-  type?: string;
-  customType?: string;
-  data?: Partial<PlanModeState>;
-}
 ```
+
+> **Note:** No custom `SessionEntry` type. The SDK exports `SessionEntry` and `CustomEntry`
+> from `@earendil-works/pi-coding-agent`. The `restoreState` function (Task 3) uses the SDK's
+> types directly to avoid naming collisions.
 
 - [ ] **Step 2: Create `src/shared/constants.ts`**
 
@@ -269,6 +267,7 @@ git commit -m "feat: add bash command safety filtering"
 Create `tests/core/state.test.ts`:
 
 ```typescript
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import {
   createInitialState,
@@ -276,6 +275,32 @@ import {
   exitPlanMode,
   restoreState,
 } from "../../src/core/state.ts";
+
+/** Helper to build a CustomEntry with required base fields */
+function customEntry(
+  customType: string,
+  data: Record<string, unknown>,
+): SessionEntry {
+  return {
+    type: "custom",
+    customType,
+    data,
+    id: crypto.randomUUID(),
+    parentId: null,
+    timestamp: new Date().toISOString(),
+  } as SessionEntry;
+}
+
+/** Helper to build a non-custom entry */
+function messageEntry(): SessionEntry {
+  return {
+    type: "message",
+    id: crypto.randomUUID(),
+    parentId: null,
+    timestamp: new Date().toISOString(),
+    message: { role: "user", content: "hello" },
+  } as SessionEntry;
+}
 
 describe("createInitialState", () => {
   it("returns disabled state with no plan", () => {
@@ -341,16 +366,8 @@ describe("restoreState", () => {
 
   it("restores from the latest plan-mode-state entry", () => {
     const entries = [
-      {
-        type: "custom",
-        customType: "plan-mode-state",
-        data: { enabled: true },
-      },
-      {
-        type: "custom",
-        customType: "plan-mode-state",
-        data: { enabled: false },
-      },
+      customEntry("plan-mode-state", { enabled: true }),
+      customEntry("plan-mode-state", { enabled: false }),
     ];
     const state = restoreState(entries);
     expect(state.enabled).toBe(false);
@@ -358,15 +375,11 @@ describe("restoreState", () => {
 
   it("clears plan data when restored as disabled", () => {
     const entries = [
-      {
-        type: "custom",
-        customType: "plan-mode-state",
-        data: {
-          enabled: false,
-          latestPlan: "stale plan",
-          awaitingAction: true,
-        },
-      },
+      customEntry("plan-mode-state", {
+        enabled: false,
+        latestPlan: "stale plan",
+        awaitingAction: true,
+      }),
     ];
     const state = restoreState(entries);
     expect(state.enabled).toBe(false);
@@ -376,16 +389,12 @@ describe("restoreState", () => {
 
   it("preserves plan data when restored as enabled", () => {
     const entries = [
-      {
-        type: "custom",
-        customType: "plan-mode-state",
-        data: {
-          enabled: true,
-          latestPlan: "a plan",
-          awaitingAction: true,
-          selectedToolNames: ["read"],
-        },
-      },
+      customEntry("plan-mode-state", {
+        enabled: true,
+        latestPlan: "a plan",
+        awaitingAction: true,
+        selectedToolNames: ["read"],
+      }),
     ];
     const state = restoreState(entries);
     expect(state.enabled).toBe(true);
@@ -396,8 +405,8 @@ describe("restoreState", () => {
 
   it("ignores non-plan-mode entries", () => {
     const entries = [
-      { type: "message", content: "hello" },
-      { type: "custom", customType: "other-ext", data: { enabled: true } },
+      messageEntry(),
+      customEntry("other-ext", { enabled: true }),
     ];
     const state = restoreState(entries);
     expect(state).toEqual(createInitialState());
@@ -413,8 +422,12 @@ Expected: FAIL -- imports not found
 - [ ] **Step 3: Implement `src/core/state.ts`**
 
 ```typescript
+import type {
+  CustomEntry,
+  SessionEntry,
+} from "@earendil-works/pi-coding-agent";
 import { STATE_ENTRY_TYPE } from "../shared/constants.ts";
-import type { PlanModeState, SessionEntry } from "../shared/types.ts";
+import type { PlanModeState } from "../shared/types.ts";
 
 export function createInitialState(): PlanModeState {
   return {
@@ -438,10 +451,14 @@ export function exitPlanMode(state: PlanModeState): PlanModeState {
   };
 }
 
+function isPlanStateEntry(
+  entry: SessionEntry,
+): entry is CustomEntry<Partial<PlanModeState>> {
+  return entry.type === "custom" && entry.customType === STATE_ENTRY_TYPE;
+}
+
 export function restoreState(entries: SessionEntry[]): PlanModeState {
-  const entry = entries
-    .filter((e) => e.type === "custom" && e.customType === STATE_ENTRY_TYPE)
-    .pop();
+  const entry = entries.filter(isPlanStateEntry).pop();
 
   if (!entry?.data) return createInitialState();
 
@@ -652,9 +669,10 @@ This mock captures all Pi API calls and lets integration tests invoke event hand
 ```typescript
 import type {
   ExtensionAPI,
+  ExtensionCommandContext,
   ExtensionContext,
+  SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import type { SessionEntry } from "../src/shared/types.ts";
 
 interface RegisteredFlag {
   description?: string;
@@ -664,7 +682,7 @@ interface RegisteredFlag {
 
 interface RegisteredCommand {
   description?: string;
-  handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+  handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
   getArgumentCompletions?: (prefix: string) => unknown;
 }
 
@@ -687,7 +705,7 @@ export interface MockPi {
 }
 
 export interface MockContext {
-  ctx: ExtensionContext;
+  ctx: ExtensionCommandContext;
   statuses: Map<string, string | undefined>;
   notifications: Array<{ message: string; type?: string }>;
   widgets: Map<string, unknown>;
@@ -766,7 +784,7 @@ export function createMockContext(options?: {
   const statuses = new Map<string, string | undefined>();
   const notifications: Array<{ message: string; type?: string }> = [];
   const widgets = new Map<string, unknown>();
-  const sessionEntries = options?.entries ?? [];
+  const sessionEntries: SessionEntry[] = options?.entries ?? [];
 
   const mockCtx: MockContext = {
     ctx: {
@@ -791,7 +809,7 @@ export function createMockContext(options?: {
       sessionManager: {
         getEntries: () => sessionEntries,
       },
-    } as unknown as ExtensionContext,
+    } as unknown as ExtensionCommandContext,
     statuses,
     notifications,
     widgets,
@@ -845,12 +863,13 @@ describe("createExtension", () => {
     expect(mock.commands.has("plan")).toBe(true);
   });
 
-  it("registers session_start, session_shutdown, and tool_call handlers", () => {
+  it("registers session_start, session_shutdown, tool_call, and before_agent_start handlers", () => {
     const mock = createMockPi();
     createExtension(mock.pi);
     expect(mock.events.has("session_start")).toBe(true);
     expect(mock.events.has("session_shutdown")).toBe(true);
     expect(mock.events.has("tool_call")).toBe(true);
+    expect(mock.events.has("before_agent_start")).toBe(true);
   });
 });
 
@@ -940,6 +959,47 @@ describe("tool management", () => {
     expect(mock.activeTools).toContain("edit");
     expect(mock.activeTools).toContain("write");
     expect(mock.activeTools).toContain("custom");
+  });
+
+  it("re-applies plan-mode tools on before_agent_start", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+
+    await mock.commands.get("plan")!.handler("", ctx.ctx); // enable
+
+    // Simulate another extension modifying tools between turns
+    mock.pi.setActiveTools(["read", "bash", "edit", "write"]);
+    expect(mock.activeTools).toContain("edit");
+
+    // before_agent_start should restore plan-mode tools
+    await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "" },
+      ctx,
+    );
+
+    expect(mock.activeTools).not.toContain("edit");
+    expect(mock.activeTools).not.toContain("write");
+    expect(mock.activeTools).toContain("read");
+    expect(mock.activeTools).toContain("bash");
+  });
+
+  it("does not modify tools on before_agent_start when plan mode is off", async () => {
+    const mock = createMockPi({
+      activeTools: ["read", "bash", "edit", "write"],
+    });
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+
+    await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "" },
+      ctx,
+    );
+
+    expect(mock.activeTools).toContain("edit");
+    expect(mock.activeTools).toContain("write");
   });
 });
 
@@ -1053,6 +1113,9 @@ describe("session persistence", () => {
           type: "custom",
           customType: "plan-mode-state",
           data: { enabled: true },
+          id: "1",
+          parentId: null,
+          timestamp: new Date().toISOString(),
         },
       ],
     });
@@ -1130,7 +1193,7 @@ import {
   STATE_ENTRY_TYPE,
   STATUS_KEY,
 } from "./shared/constants.ts";
-import type { PlanModeState, SessionEntry } from "./shared/types.ts";
+import type { PlanModeState } from "./shared/types.ts";
 import { formatStatus } from "./tui/status.ts";
 
 export default function createExtension(pi: ExtensionAPI): void {
@@ -1224,8 +1287,16 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
   });
 
+  // Re-apply plan-mode tools each turn to guard against other extensions
+  // modifying the tool list between turns.
+  pi.on("before_agent_start", async () => {
+    if (state.enabled) {
+      pi.setActiveTools(defaultPlanModeToolNames());
+    }
+  });
+
   pi.on("session_start", async (_event, ctx) => {
-    const entries = ctx.sessionManager.getEntries() as SessionEntry[];
+    const entries = ctx.sessionManager.getEntries();
     state = restoreState(entries);
 
     if (pi.getFlag("plan") === true) {
