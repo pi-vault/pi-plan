@@ -33,7 +33,7 @@ export const MUTATING_BASH_PATTERNS: RegExp[] = [
   /\bbun\s+(add|remove|install|update|publish)\b/i,
   /\bpip\s+(install|uninstall)\b/i,
   /\buv\s+(add|remove|sync|lock|pip\s+install)\b/i,
-  /\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|switch|stash|cherry-pick|revert|tag|init|clone)\b/i,
+  /\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|switch|stash|cherry-pick|revert|tag|init|clone|apply|am|bisect)\b/i,
   /\bsudo\b/i,
   /\bsu\b/i,
   /\bkill\b/i,
