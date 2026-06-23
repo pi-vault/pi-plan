@@ -1,22 +1,18 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { buildPlanModePrompt } from "./core/prompt.ts";
 import { isSafeCommand } from "./core/safety.ts";
-import {
-  createInitialState,
-  enterPlanMode,
-  exitPlanMode,
-  restoreState,
-} from "./core/state.ts";
+import { createInitialState, enterPlanMode, exitPlanMode, restoreState } from "./core/state.ts";
 import { defaultPlanModeToolNames, normalModeToolNames } from "./core/tools.ts";
+import { extractProposedPlan, filterPlanModeEntries, getAssistantMessageText } from "./core/context.ts";
 import {
   BLOCKED_BUILTIN_TOOLS,
   STATE_ENTRY_TYPE,
   STATUS_KEY,
+  WIDGET_KEY,
 } from "./shared/constants.ts";
 import type { PlanModeState } from "./shared/types.ts";
 import { formatStatus } from "./tui/status.ts";
+import { formatWidgetLines } from "./tui/widgets.ts";
 
 export default function createExtension(pi: ExtensionAPI): void {
   let state: PlanModeState = createInitialState();
@@ -34,10 +30,12 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   function updateUi(ctx: ExtensionContext): void {
     ctx.ui.setStatus(STATUS_KEY, formatStatus(state));
+    ctx.ui.setWidget(WIDGET_KEY, formatWidgetLines(state));
   }
 
   function clearUi(ctx: ExtensionContext): void {
     ctx.ui.setStatus(STATUS_KEY, undefined);
+    ctx.ui.setWidget(WIDGET_KEY, undefined);
   }
 
   function activatePlanModeTools(): void {
@@ -109,11 +107,34 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
   });
 
-  // Re-apply plan-mode tools each turn to guard against other extensions
-  // modifying the tool list between turns.
-  pi.on("before_agent_start", async () => {
-    if (state.enabled) {
-      pi.setActiveTools(defaultPlanModeToolNames());
+  pi.on("before_agent_start", async (event, ctx) => {
+    if (!state.enabled) return;
+    // Re-apply plan mode tools each turn (handles other extensions modifying tool list)
+    pi.setActiveTools(defaultPlanModeToolNames());
+    // Clear stale plan state for the new turn
+    state = { ...state, latestPlan: undefined, awaitingAction: false };
+    updateUi(ctx);
+    return { systemPrompt: `${event.systemPrompt}\n\n${buildPlanModePrompt()}` };
+  });
+
+  pi.on("agent_end", async (event, ctx) => {
+    if (!state.enabled) return;
+    const messages = (event.messages as unknown as Array<Record<string, unknown>>) ?? [];
+    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+    if (!lastAssistant) return;
+    const text = getAssistantMessageText(lastAssistant);
+    const plan = extractProposedPlan(text);
+    if (!plan) return;
+    state = { ...state, latestPlan: plan, awaitingAction: true };
+    persist();
+    updateUi(ctx);
+  });
+
+  pi.on("context", async (event) => {
+    const messages = (event.messages as unknown as Array<Record<string, unknown>>) ?? [];
+    const filtered = filterPlanModeEntries(messages, STATE_ENTRY_TYPE);
+    if (filtered.length !== messages.length) {
+      return { messages: filtered as unknown as typeof event.messages };
     }
   });
 
