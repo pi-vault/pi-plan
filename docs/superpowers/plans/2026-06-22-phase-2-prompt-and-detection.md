@@ -444,7 +444,7 @@ import {
   STATUS_KEY,
   WIDGET_KEY,
 } from "./shared/constants.ts";
-import type { PlanModeState, SessionEntry } from "./shared/types.ts";
+import type { PlanModeState } from "./shared/types.ts";
 import { formatStatus } from "./tui/status.ts";
 import { formatWidgetLines } from "./tui/widgets.ts";
 
@@ -541,13 +541,14 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
   });
 
-  pi.on("before_agent_start", async (event) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     if (!state.enabled) return;
     // Re-apply plan mode tools each turn (handles other extensions modifying tool list)
     pi.setActiveTools(defaultPlanModeToolNames());
     // Clear stale plan state for the new turn
     state = { ...state, latestPlan: undefined, awaitingAction: false };
-    return { systemPrompt: (event.systemPrompt as string) + "\n\n" + buildPlanModePrompt() };
+    updateUi(ctx);
+    return { systemPrompt: event.systemPrompt + "\n\n" + buildPlanModePrompt() };
   });
 
   pi.on("agent_end", async (event, ctx) => {
@@ -572,7 +573,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    const entries = ctx.sessionManager.getEntries() as SessionEntry[];
+    const entries = ctx.sessionManager.getEntries();
     state = restoreState(entries);
 
     if (pi.getFlag("plan") === true) {
