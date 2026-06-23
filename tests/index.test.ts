@@ -317,3 +317,293 @@ describe("session persistence", () => {
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
   });
 });
+
+describe("before_agent_start", () => {
+  it("injects plan mode prompt when plan mode is enabled", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    const result = await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "base prompt" },
+      ctx,
+    );
+
+    expect(result).toBeDefined();
+    const { systemPrompt } = result as { systemPrompt: string };
+    expect(systemPrompt).toContain("base prompt");
+    expect(systemPrompt).toContain("[PLAN MODE ACTIVE]");
+  });
+
+  it("does not modify prompt when plan mode is off", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+
+    const result = await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "base prompt" },
+      ctx,
+    );
+
+    expect(result).toBeUndefined();
+  });
+
+  it("re-applies plan mode tools each turn", async () => {
+    const mock = createMockPi({ activeTools: ["read", "bash", "edit", "write"] });
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    // Simulate another extension adding a mutating tool
+    mock.pi.setActiveTools([...mock.activeTools, "custom-editor"]);
+
+    await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "base" },
+      ctx,
+    );
+
+    expect(mock.activeTools).not.toContain("custom-editor");
+    expect(mock.activeTools).not.toContain("edit");
+  });
+
+  it("clears stale plan state for new turn", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    // Simulate plan having been detected in a previous turn
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
+    expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
+
+    // New turn starts
+    await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "base" },
+      ctx,
+    );
+    // Status should revert to "plan active" (plan cleared for new turn)
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+  });
+});
+
+describe("agent_end", () => {
+  it("detects proposed plan and sets status to plan ready", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          { role: "user", content: "make a plan" },
+          {
+            role: "assistant",
+            content:
+              "Here is my plan:\n<proposed_plan>\n# My Plan\n## Summary\nDo stuff\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
+
+    expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
+  });
+
+  it("does nothing when plan mode is off", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          { role: "assistant", content: "<proposed_plan>\n# Plan\n</proposed_plan>" },
+        ],
+      },
+      ctx,
+    );
+
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+  });
+
+  it("does nothing when no proposed plan in messages", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [{ role: "assistant", content: "Just some text, no plan yet." }],
+      },
+      ctx,
+    );
+
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+  });
+
+  it("persists state when plan is detected", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    const entriesBefore = mock.entries.filter((e) => e.customType === "plan-mode-state").length;
+
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          { role: "assistant", content: "<proposed_plan>\n# Plan\n</proposed_plan>" },
+        ],
+      },
+      ctx,
+    );
+
+    const entriesAfter = mock.entries.filter((e) => e.customType === "plan-mode-state").length;
+    expect(entriesAfter).toBeGreaterThan(entriesBefore);
+  });
+});
+
+describe("context handler", () => {
+  it("filters out plan-mode-state entries", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+
+    const result = await mock.fireEvent(
+      "context",
+      {
+        type: "context",
+        messages: [
+          { role: "user", content: "hello" },
+          { customType: "plan-mode-state", data: { enabled: true } },
+          { role: "assistant", content: "world" },
+        ],
+      },
+      ctx,
+    );
+
+    expect(result).toBeDefined();
+    const { messages } = result as { messages: unknown[] };
+    expect(messages).toHaveLength(2);
+  });
+
+  it("keeps proposed_plan blocks in assistant messages", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+
+    const result = await mock.fireEvent(
+      "context",
+      {
+        type: "context",
+        messages: [
+          {
+            role: "assistant",
+            content: "text <proposed_plan>\n# Plan\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
+
+    // No plan-mode-state entries to filter, so result is undefined (original messages kept)
+    // OR if result is returned, the plan block must be intact
+    if (result) {
+      const msgs = (result as { messages: Array<{ content: string }> }).messages;
+      expect(msgs[0].content).toContain("<proposed_plan>");
+    }
+  });
+
+  it("returns undefined when nothing to filter", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+
+    const result = await mock.fireEvent(
+      "context",
+      {
+        type: "context",
+        messages: [
+          { role: "user", content: "hello" },
+          { role: "assistant", content: "world" },
+        ],
+      },
+      ctx,
+    );
+
+    expect(result).toBeUndefined();
+  });
+});
+
+describe("widgets", () => {
+  it("shows planning widget when plan mode is enabled", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    const widget = ctx.widgets.get("pi-plan") as string[];
+    expect(widget).toBeDefined();
+    expect(widget.some((line) => line.includes("Plan mode"))).toBe(true);
+  });
+
+  it("shows plan ready widget after plan is detected", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          { role: "assistant", content: "<proposed_plan>\n# Plan\n</proposed_plan>" },
+        ],
+      },
+      ctx,
+    );
+
+    const widget = ctx.widgets.get("pi-plan") as string[];
+    expect(widget).toBeDefined();
+    expect(widget.some((line) => line.toLowerCase().includes("ready"))).toBe(true);
+  });
+
+  it("clears widget when plan mode exits", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx.ctx); // on
+    expect(ctx.widgets.get("pi-plan")).toBeDefined();
+
+    await mock.commands.get("plan")!.handler("", ctx.ctx); // off
+    expect(ctx.widgets.get("pi-plan")).toBeUndefined();
+  });
+});

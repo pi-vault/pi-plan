@@ -34,6 +34,6 @@ describe("formatWidgetLines", () => {
     const state = { ...createInitialState(), enabled: true };
     const lines = formatWidgetLines(state);
     expect(Array.isArray(lines)).toBe(true);
-    lines!.forEach((l) => expect(typeof l).toBe("string"));
+    expect(lines!.every((l) => typeof l === "string")).toBe(true);
   });
 });

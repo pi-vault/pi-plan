@@ -114,12 +114,12 @@ export default function createExtension(pi: ExtensionAPI): void {
     // Clear stale plan state for the new turn
     state = { ...state, latestPlan: undefined, awaitingAction: false };
     updateUi(ctx);
-    return { systemPrompt: event.systemPrompt + "\n\n" + buildPlanModePrompt() };
+    return { systemPrompt: `${event.systemPrompt}\n\n${buildPlanModePrompt()}` };
   });
 
   pi.on("agent_end", async (event, ctx) => {
     if (!state.enabled) return;
-    const messages = (event.messages as Array<Record<string, unknown>>) ?? [];
+    const messages = (event.messages as unknown as Array<Record<string, unknown>>) ?? [];
     const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
     if (!lastAssistant) return;
     const text = getAssistantMessageText(lastAssistant);
@@ -131,10 +131,10 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("context", async (event) => {
-    const messages = (event.messages as Array<Record<string, unknown>>) ?? [];
+    const messages = (event.messages as unknown as Array<Record<string, unknown>>) ?? [];
     const filtered = filterPlanModeEntries(messages, STATE_ENTRY_TYPE);
     if (filtered.length !== messages.length) {
-      return { messages: filtered };
+      return { messages: filtered as unknown as typeof event.messages };
     }
   });
 
