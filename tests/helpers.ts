@@ -56,7 +56,9 @@ export function createMockPi(options?: { activeTools?: string[] }): MockPi {
     pi: {
       registerFlag(name: string, opts: RegisteredFlag) {
         flags.set(name, opts);
-        if (opts.default !== undefined) flagValues.set(name, opts.default);
+        if (opts.default !== undefined && !flagValues.has(name)) {
+          flagValues.set(name, opts.default);
+        }
       },
       registerCommand(name: string, opts: RegisteredCommand) {
         commands.set(name, opts);
