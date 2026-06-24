@@ -82,10 +82,11 @@ describe("renderToolSelector", () => {
     expect(lines.some((l) => l.includes("[ ]") && l.includes("my-tool"))).toBe(true);
   });
 
-  it("renders cursor indicator on focused row", () => {
+  it("renders cursor indicator on focused tool row", () => {
     const state = initToolSelectorState(makeTools(["a", "b"]), undefined);
     const lines = renderToolSelector(state, noTheme, 80);
-    expect(lines.some((l) => l.includes("\u25B8"))).toBe(true);
+    // The ▸ must appear on a tool row (one with a checkbox), not just the search line
+    expect(lines.some((l) => l.includes("\u25B8") && l.includes("[ ]"))).toBe(true);
   });
 
   it("renders policy labels for builtin tools", () => {
@@ -166,7 +167,6 @@ import {
   type ToolSelectorState,
   getVisibleTools,
   isAlwaysOn,
-  isToggleable,
   toolPolicyLabel,
   totalPages,
 } from "./tool-selector-state.ts";
