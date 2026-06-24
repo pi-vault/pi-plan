@@ -105,7 +105,6 @@ export default function createExtension(pi: ExtensionAPI): void {
         // Phase 4: show tool selector
         ctx.ui.notify("Tool selector not yet available.", "info");
         break;
-      case "stay":
       default:
         break;
     }
