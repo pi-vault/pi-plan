@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
 import { createMockContext, createMockPi } from "./helpers.ts";
-import { PLAN_MENU_LABELS } from "../src/tui/menus.ts";
+import { PLAN_MENU_LABELS, TOOL_SELECTOR_LABELS } from "../src/tui/menus.ts";
 
 describe("createExtension", () => {
   it("registers the plan flag", () => {
@@ -843,5 +843,142 @@ describe("agent_end auto-show menu", () => {
 
     // Still only one select call
     expect(ctx.selectCalls).toHaveLength(1);
+  });
+});
+
+describe("/plan tools", () => {
+  it("opens tool selector and applies selections", async () => {
+    const mock = createMockPi({
+      activeTools: ["read", "bash", "edit", "write"],
+      allTools: [
+        { name: "read", description: "Read files", sourceInfo: { source: "builtin" } },
+        { name: "bash", description: "Run bash", sourceInfo: { source: "builtin" } },
+        { name: "edit", description: "Edit files", sourceInfo: { source: "builtin" } },
+        { name: "write", description: "Write files", sourceInfo: { source: "builtin" } },
+        { name: "my-search", description: "Search tool", sourceInfo: { source: "my-extension" } },
+      ],
+    });
+    createExtension(mock.pi);
+
+    // Enter plan mode first
+    const ctx1 = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx1.ctx);
+
+    // Run /plan tools — toggle my-search on, then Done
+    const ctx2 = createMockContext({
+      selectResponses: [
+        "my-search (my-extension) [disabled]",
+        TOOL_SELECTOR_LABELS.done,
+      ],
+    });
+    await mock.commands.get("plan")!.handler("tools", ctx2.ctx);
+
+    expect(mock.activeTools).toContain("my-search");
+    expect(mock.activeTools).toContain("read");
+    expect(mock.activeTools).toContain("bash");
+    expect(mock.activeTools).not.toContain("edit");
+    expect(mock.activeTools).not.toContain("write");
+  });
+
+  it("enters plan mode when running /plan tools while not in plan mode", async () => {
+    const mock = createMockPi({
+      allTools: [
+        { name: "my-tool", description: "My tool", sourceInfo: { source: "my-ext" } },
+      ],
+    });
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      selectResponses: [TOOL_SELECTOR_LABELS.done],
+    });
+
+    await mock.commands.get("plan")!.handler("tools", ctx.ctx);
+
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+  });
+
+  it("tools action from plan menu calls tool selector", async () => {
+    const mock = createMockPi({
+      allTools: [
+        { name: "my-tool", description: "My tool", sourceInfo: { source: "my-ext" } },
+      ],
+    });
+    createExtension(mock.pi);
+
+    // Enter plan mode
+    const ctx = createMockContext({
+      selectResponses: [PLAN_MENU_LABELS.tools, TOOL_SELECTOR_LABELS.done],
+    });
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    // Run /plan again (shows menu) -> select "Configure tools" -> selector opens -> Done
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    // Two select calls: one for plan menu, one for tool selector
+    expect(ctx.selectCalls).toHaveLength(2);
+  });
+
+  it("preserves selected tools across before_agent_start", async () => {
+    const mock = createMockPi({
+      activeTools: ["read", "bash", "edit", "write"],
+      allTools: [
+        { name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } },
+      ],
+    });
+    createExtension(mock.pi);
+
+    // Enter plan mode and configure tools
+    const ctx = createMockContext({
+      selectResponses: [
+        "my-search (my-ext) [disabled]",
+        TOOL_SELECTOR_LABELS.done,
+      ],
+    });
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    await mock.commands.get("plan")!.handler("tools", ctx.ctx);
+
+    expect(mock.activeTools).toContain("my-search");
+
+    // Simulate another extension modifying tools between turns
+    mock.pi.setActiveTools(["read", "bash", "edit", "write"]);
+
+    // before_agent_start should re-apply plan-mode tools WITH selections
+    await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "" },
+      ctx,
+    );
+
+    expect(mock.activeTools).toContain("my-search");
+    expect(mock.activeTools).toContain("read");
+    expect(mock.activeTools).not.toContain("edit");
+  });
+
+  it("selectedToolNames persists across session restore", async () => {
+    const mock = createMockPi({
+      allTools: [
+        { name: "my-tool", description: "My tool", sourceInfo: { source: "my-ext" } },
+      ],
+    });
+    createExtension(mock.pi);
+
+    // Enter plan mode and configure tools
+    const ctx = createMockContext({
+      selectResponses: [
+        "my-tool (my-ext) [disabled]",
+        TOOL_SELECTOR_LABELS.done,
+      ],
+    });
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    await mock.commands.get("plan")!.handler("tools", ctx.ctx);
+
+    // Check persisted state includes selectedToolNames
+    const persistedEntries = mock.entries.filter(
+      (e) => e.customType === "plan-mode-state",
+    );
+    expect(persistedEntries.length).toBeGreaterThan(0);
+
+    const lastEntry = persistedEntries[persistedEntries.length - 1];
+    const persistedState = lastEntry.data as { selectedToolNames?: string[] };
+    expect(persistedState.selectedToolNames).toContain("my-tool");
   });
 });
