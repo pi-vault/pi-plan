@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  PLAN_MENU_LABELS,
-  showPlanMenu,
-  showPlanReadyMenu,
-} from "../../src/tui/menus.ts";
 import { createInitialState } from "../../src/core/state.ts";
+import { PLAN_MENU_LABELS, showPlanMenu, showPlanReadyMenu } from "../../src/tui/menus.ts";
 import { createMockContext } from "../helpers.ts";
 
 describe("showPlanReadyMenu", () => {

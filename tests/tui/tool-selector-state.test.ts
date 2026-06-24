@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  getVisibleTools,
+  initToolSelectorState,
+  isToggleable,
+  TOOL_SELECTOR_PAGE_SIZE,
   type ToolSelectorAction,
   type ToolSelectorItem,
   type ToolSelectorResult,
-  TOOL_SELECTOR_PAGE_SIZE,
-  initToolSelectorState,
-  toolSelectorReducer,
-  getVisibleTools,
   toolPolicyLabel,
-  isToggleable,
+  toolSelectorReducer,
 } from "../../src/tui/tool-selector-state.ts";
 
 function makeTools(names: string[], source = "extension"): ToolSelectorItem[] {

@@ -29,12 +29,7 @@ describe("normalModeToolNames", () => {
   });
 
   it("returns defaults when previous is undefined", () => {
-    expect(normalModeToolNames(undefined)).toEqual([
-      "read",
-      "bash",
-      "edit",
-      "write",
-    ]);
+    expect(normalModeToolNames(undefined)).toEqual(["read", "bash", "edit", "write"]);
   });
 
   it("returns defaults when previous is empty", () => {

@@ -1,7 +1,4 @@
-import {
-  MUTATING_BASH_PATTERNS,
-  SAFE_BASH_PATTERNS,
-} from "../shared/constants.ts";
+import { MUTATING_BASH_PATTERNS, SAFE_BASH_PATTERNS } from "../shared/constants.ts";
 
 const COMMAND_SEPARATORS = /;|&&|\|\|/;
 const COMMAND_SUBSTITUTION = /`|\$\((?!\()/;

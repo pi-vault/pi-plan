@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToolSelector, type ToolSelectorTheme } from "../../src/tui/tool-selector-render.ts";
-import { initToolSelectorState } from "../../src/tui/tool-selector-state.ts";
 import type { ToolSelectorItem } from "../../src/tui/tool-selector-state.ts";
+import { initToolSelectorState } from "../../src/tui/tool-selector-state.ts";
 
 const noTheme: ToolSelectorTheme = {
   fg: (_color, text) => text,

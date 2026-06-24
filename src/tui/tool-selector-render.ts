@@ -1,9 +1,9 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import {
-  type ToolSelectorItem,
-  type ToolSelectorState,
   getVisibleTools,
   isAlwaysOn,
+  type ToolSelectorItem,
+  type ToolSelectorState,
   toolPolicyLabel,
   totalPages,
 } from "./tool-selector-state.ts";

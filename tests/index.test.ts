@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
-import { createMockContext, createMockPi } from "./helpers.ts";
 import { PLAN_MENU_LABELS } from "../src/tui/menus.ts";
+import { createMockContext, createMockPi } from "./helpers.ts";
 
 describe("createExtension", () => {
   it("registers the plan flag", () => {
@@ -39,9 +39,7 @@ describe("/plan command", () => {
     await handler("", ctx.ctx);
 
     expect(ctx.statuses.get("pi-plan")).toBe("plan active");
-    expect(ctx.notifications.some((n) => n.message.includes("enabled"))).toBe(
-      true,
-    );
+    expect(ctx.notifications.some((n) => n.message.includes("enabled"))).toBe(true);
   });
 
   it("shows plan menu when /plan is run in plan mode", async () => {
@@ -89,9 +87,7 @@ describe("/plan:exit command", () => {
     const ctx = createMockContext();
 
     await mock.commands.get("plan:exit")!.handler("", ctx.ctx);
-    expect(ctx.notifications.some((n) => n.message.includes("disabled"))).toBe(
-      true,
-    );
+    expect(ctx.notifications.some((n) => n.message.includes("disabled"))).toBe(true);
   });
 });
 
@@ -262,9 +258,7 @@ describe("session persistence", () => {
     await handler("", ctx.ctx); // on
     await mock.commands.get("plan:exit")!.handler("", ctx.ctx); // off
 
-    const planEntries = mock.entries.filter(
-      (e) => e.customType === "plan-mode-state",
-    );
+    const planEntries = mock.entries.filter((e) => e.customType === "plan-mode-state");
     expect(planEntries.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -284,11 +278,7 @@ describe("session persistence", () => {
       ],
     });
 
-    await mock.fireEvent(
-      "session_start",
-      { type: "session_start", reason: "resume" },
-      ctx,
-    );
+    await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
 
     expect(ctx.statuses.get("pi-plan")).toBe("plan active");
     expect(mock.activeTools).not.toContain("edit");
@@ -301,11 +291,7 @@ describe("session persistence", () => {
     createExtension(mock.pi);
     const ctx = createMockContext();
 
-    await mock.fireEvent(
-      "session_start",
-      { type: "session_start", reason: "startup" },
-      ctx,
-    );
+    await mock.fireEvent("session_start", { type: "session_start", reason: "startup" }, ctx);
 
     expect(ctx.statuses.get("pi-plan")).toBe("plan active");
     expect(mock.activeTools).not.toContain("edit");
@@ -319,11 +305,7 @@ describe("session persistence", () => {
     await mock.commands.get("plan")!.handler("", ctx.ctx); // enable
     expect(ctx.statuses.get("pi-plan")).toBe("plan active");
 
-    await mock.fireEvent(
-      "session_shutdown",
-      { type: "session_shutdown", reason: "quit" },
-      ctx,
-    );
+    await mock.fireEvent("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
 
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
   });
@@ -470,9 +452,7 @@ describe("agent_end", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [
-          { role: "assistant", content: "Just some text, no plan yet." },
-        ],
+        messages: [{ role: "assistant", content: "Just some text, no plan yet." }],
       },
       ctx,
     );
@@ -486,9 +466,7 @@ describe("agent_end", () => {
     const ctx = createMockContext();
     await mock.commands.get("plan")!.handler("", ctx.ctx);
 
-    const entriesBefore = mock.entries.filter(
-      (e) => e.customType === "plan-mode-state",
-    ).length;
+    const entriesBefore = mock.entries.filter((e) => e.customType === "plan-mode-state").length;
 
     await mock.fireEvent(
       "agent_end",
@@ -504,9 +482,7 @@ describe("agent_end", () => {
       ctx,
     );
 
-    const entriesAfter = mock.entries.filter(
-      (e) => e.customType === "plan-mode-state",
-    ).length;
+    const entriesAfter = mock.entries.filter((e) => e.customType === "plan-mode-state").length;
     expect(entriesAfter).toBeGreaterThan(entriesBefore);
   });
 });
@@ -555,8 +531,7 @@ describe("context handler", () => {
     );
 
     if (result) {
-      const msgs = (result as { messages: Array<{ content: string }> })
-        .messages;
+      const msgs = (result as { messages: Array<{ content: string }> }).messages;
       expect(msgs[0].content).toContain("<proposed_plan>");
     }
   });
@@ -616,9 +591,7 @@ describe("widgets", () => {
 
     const widget = ctx.widgets.get("pi-plan") as string[];
     expect(widget).toBeDefined();
-    expect(widget.some((line) => line.toLowerCase().includes("ready"))).toBe(
-      true,
-    );
+    expect(widget.some((line) => line.toLowerCase().includes("ready"))).toBe(true);
   });
 
   it("clears widget when plan mode exits", async () => {
@@ -651,8 +624,7 @@ describe("plan menu actions", () => {
         messages: [
           {
             role: "assistant",
-            content:
-              "<proposed_plan>\n# My Plan\n## Summary\nBuild the thing\n</proposed_plan>",
+            content: "<proposed_plan>\n# My Plan\n## Summary\nBuild the thing\n</proposed_plan>",
           },
         ],
       },
@@ -663,9 +635,7 @@ describe("plan menu actions", () => {
 
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
     expect(mock.userMessages).toHaveLength(1);
-    expect(mock.userMessages[0].content as string).toContain(
-      "Implement this proposed plan now",
-    );
+    expect(mock.userMessages[0].content as string).toContain("Implement this proposed plan now");
     expect(mock.userMessages[0].content as string).toContain("# My Plan");
   });
 
@@ -721,9 +691,7 @@ describe("plan menu actions", () => {
 
     await handler("", ctx.ctx);
 
-    expect(ctx.notifications.some((n) => n.message.includes("# My Plan"))).toBe(
-      true,
-    );
+    expect(ctx.notifications.some((n) => n.message.includes("# My Plan"))).toBe(true);
   });
 });
 
@@ -779,8 +747,7 @@ describe("agent_end auto-show menu", () => {
         messages: [
           {
             role: "assistant",
-            content:
-              "<proposed_plan>\n# Auto Plan\n## Summary\nDo the thing\n</proposed_plan>",
+            content: "<proposed_plan>\n# Auto Plan\n## Summary\nDo the thing\n</proposed_plan>",
           },
         ],
       },
@@ -866,9 +833,7 @@ describe("/plan:tools command", () => {
     await mock.commands.get("plan:tools")!.handler("", ctx.ctx);
 
     expect(ctx.statuses.get("pi-plan")).toBe("plan active");
-    expect(ctx.notifications.some((n) => n.message.includes("enabled"))).toBe(
-      true,
-    );
+    expect(ctx.notifications.some((n) => n.message.includes("enabled"))).toBe(true);
   });
 
   it("applies selections when tool selector returns names", async () => {
@@ -909,9 +874,7 @@ describe("/plan:tools command", () => {
     await mock.commands.get("plan")!.handler("", ctx.ctx); // enter
     await mock.commands.get("plan:tools")!.handler("", ctx.ctx);
 
-    expect(ctx.notifications.some((n) => n.message.includes("No changes"))).toBe(
-      true,
-    );
+    expect(ctx.notifications.some((n) => n.message.includes("No changes"))).toBe(true);
   });
 
   it("tools action from plan menu calls tool selector", async () => {
@@ -988,9 +951,7 @@ describe("/plan:tools command", () => {
     await mock.commands.get("plan:tools")!.handler("", ctx.ctx); // select my-tool
 
     // Check persisted state includes selectedToolNames
-    const persistedEntries = mock.entries.filter(
-      (e) => e.customType === "plan-mode-state",
-    );
+    const persistedEntries = mock.entries.filter((e) => e.customType === "plan-mode-state");
     expect(persistedEntries.length).toBeGreaterThan(0);
 
     const lastEntry = persistedEntries[persistedEntries.length - 1];

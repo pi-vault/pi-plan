@@ -13,7 +13,9 @@ export function getAssistantMessageText(message: Record<string, unknown>): strin
   return content
     .filter(
       (part): part is Record<string, unknown> =>
-        typeof part === "object" && part !== null && (part as Record<string, unknown>).type === "text",
+        typeof part === "object" &&
+        part !== null &&
+        (part as Record<string, unknown>).type === "text",
     )
     .map((part) => String(part.text ?? ""))
     .join("\n");

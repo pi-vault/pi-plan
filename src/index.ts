@@ -1,24 +1,13 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import { buildPlanModePrompt } from "./core/prompt.ts";
-import { isSafeCommand } from "./core/safety.ts";
-import {
-  createInitialState,
-  enterPlanMode,
-  exitPlanMode,
-  restoreState,
-} from "./core/state.ts";
-import {
-  normalModeToolNames,
-  planModeToolNamesWithSelections,
-} from "./core/tools.ts";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   extractProposedPlan,
   filterPlanModeEntries,
   getAssistantMessageText,
 } from "./core/context.ts";
+import { buildPlanModePrompt } from "./core/prompt.ts";
+import { isSafeCommand } from "./core/safety.ts";
+import { createInitialState, enterPlanMode, exitPlanMode, restoreState } from "./core/state.ts";
+import { normalModeToolNames, planModeToolNamesWithSelections } from "./core/tools.ts";
 import {
   BLOCKED_BUILTIN_TOOLS,
   STATE_ENTRY_TYPE,
@@ -26,17 +15,10 @@ import {
   WIDGET_KEY,
 } from "./shared/constants.ts";
 import type { PlanModeState } from "./shared/types.ts";
+import { type PlanMenuAction, showPlanMenu, showPlanReadyMenu } from "./tui/menus.ts";
 import { formatStatus } from "./tui/status.ts";
+import { createToolSelectorComponent, type ToolSelectorItem } from "./tui/tool-selector.ts";
 import { formatWidgetLines } from "./tui/widgets.ts";
-import {
-  showPlanMenu,
-  showPlanReadyMenu,
-  type PlanMenuAction,
-} from "./tui/menus.ts";
-import {
-  createToolSelectorComponent,
-  type ToolSelectorItem,
-} from "./tui/tool-selector.ts";
 
 export default function createExtension(pi: ExtensionAPI): void {
   let state: PlanModeState = createInitialState();
@@ -98,32 +80,27 @@ export default function createExtension(pi: ExtensionAPI): void {
   }
 
   function sendPlanModeMessage(content: string, ctx: ExtensionContext): void {
-    pi.sendUserMessage(
-      content,
-      ctx.isIdle() ? undefined : { deliverAs: "followUp" },
-    );
+    pi.sendUserMessage(content, ctx.isIdle() ? undefined : { deliverAs: "followUp" });
   }
 
   async function runToolSelector(ctx: ExtensionContext): Promise<void> {
     const allTools = pi.getAllTools() as ToolSelectorItem[];
-    const selections = await ctx.ui.custom<string[] | null>(
-      (_tui, theme, _keybindings, done) => {
-        let requestRender: () => void = () => {};
-        const component = createToolSelectorComponent({
-          tools: allTools,
-          previousSelections: state.selectedToolNames ?? undefined,
-          theme: {
-            fg: (color: string, text: string) => theme.fg(color as never, text),
-            bold: (text: string) => theme.bold(text),
-            dim: (text: string) => theme.fg("dim" as never, text),
-          },
-          done,
-          requestRender: () => requestRender(),
-        });
-        requestRender = () => component.invalidate();
-        return component;
-      },
-    );
+    const selections = await ctx.ui.custom<string[] | null>((_tui, theme, _keybindings, done) => {
+      let requestRender: () => void = () => {};
+      const component = createToolSelectorComponent({
+        tools: allTools,
+        previousSelections: state.selectedToolNames ?? undefined,
+        theme: {
+          fg: (color: string, text: string) => theme.fg(color as never, text),
+          bold: (text: string) => theme.bold(text),
+          dim: (text: string) => theme.fg("dim" as never, text),
+        },
+        done,
+        requestRender: () => requestRender(),
+      });
+      requestRender = () => component.invalidate();
+      return component;
+    });
 
     if (selections === null) {
       ctx.ui.notify("No changes to Plan-mode tools.", "info");
@@ -140,10 +117,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     ctx.ui.notify(msg, "info");
   }
 
-  async function handleMenuAction(
-    action: PlanMenuAction,
-    ctx: ExtensionContext,
-  ): Promise<void> {
+  async function handleMenuAction(action: PlanMenuAction, ctx: ExtensionContext): Promise<void> {
     switch (action) {
       case "implement": {
         const plan = state.latestPlan;
@@ -255,11 +229,8 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   pi.on("agent_end", async (event, ctx) => {
     if (!state.enabled) return;
-    const messages =
-      (event.messages as unknown as Array<Record<string, unknown>>) ?? [];
-    const lastAssistant = [...messages]
-      .reverse()
-      .find((m) => m.role === "assistant");
+    const messages = (event.messages as unknown as Array<Record<string, unknown>>) ?? [];
+    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
     if (!lastAssistant) return;
     const text = getAssistantMessageText(lastAssistant);
     const plan = extractProposedPlan(text);
@@ -278,8 +249,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("context", async (event) => {
-    const messages =
-      (event.messages as unknown as Array<Record<string, unknown>>) ?? [];
+    const messages = (event.messages as unknown as Array<Record<string, unknown>>) ?? [];
     const filtered = filterPlanModeEntries(messages, STATE_ENTRY_TYPE);
     if (filtered.length !== messages.length) {
       return { messages: filtered as unknown as typeof event.messages };

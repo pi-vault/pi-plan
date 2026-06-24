@@ -114,9 +114,7 @@ export function toolSelectorReducer(
       return { type: "done", selections: null };
 
     case "save": {
-      const names = [...state.selectedNames].filter(
-        (name) => !SAFE_BUILTIN_PLAN_TOOLS.has(name),
-      );
+      const names = [...state.selectedNames].filter((name) => !SAFE_BUILTIN_PLAN_TOOLS.has(name));
       return { type: "done", selections: names };
     }
 
@@ -177,8 +175,7 @@ export function toolSelectorReducer(
     case "backspace": {
       if (state.queryCursor === 0) return { type: "next", state };
       const query =
-        state.query.slice(0, state.queryCursor - 1) +
-        state.query.slice(state.queryCursor);
+        state.query.slice(0, state.queryCursor - 1) + state.query.slice(state.queryCursor);
       const queryCursor = state.queryCursor - 1;
       const newState = { ...state, query, queryCursor };
       return {

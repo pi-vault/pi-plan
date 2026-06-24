@@ -8,10 +8,7 @@ import {
 } from "../../src/core/state.ts";
 
 /** Helper to build a CustomEntry with required base fields */
-function customEntry(
-  customType: string,
-  data: Record<string, unknown>,
-): SessionEntry {
+function customEntry(customType: string, data: Record<string, unknown>): SessionEntry {
   return {
     type: "custom",
     customType,
@@ -135,10 +132,7 @@ describe("restoreState", () => {
   });
 
   it("ignores non-plan-mode entries", () => {
-    const entries = [
-      messageEntry(),
-      customEntry("other-ext", { enabled: true }),
-    ];
+    const entries = [messageEntry(), customEntry("other-ext", { enabled: true })];
     const state = restoreState(entries);
     expect(state).toEqual(createInitialState());
   });

@@ -17,10 +17,7 @@ interface RegisteredCommand {
   getArgumentCompletions?: (prefix: string) => unknown;
 }
 
-type EventHandler = (
-  event: unknown,
-  ctx: ExtensionContext,
-) => Promise<unknown> | unknown;
+type EventHandler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
 
 export interface ToolInfoLike {
   name: string;
