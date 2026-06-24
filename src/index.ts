@@ -113,6 +113,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   pi.registerCommand("plan", {
     description: "Enter or manage plan mode",
     handler: async (args, ctx) => {
+      clearPendingMenu();
       const command = args.trim();
       const lower = command.toLowerCase();
 
@@ -207,7 +208,10 @@ export default function createExtension(pi: ExtensionAPI): void {
     // Auto-show plan-ready menu after current event loop tick
     clearPendingMenu();
     pendingMenuTimer = setTimeout(
-      () => void showPlanReadyMenu(ctx).then((action) => handleMenuAction(action, ctx)),
+      () =>
+        void showPlanReadyMenu(ctx)
+          .then((action) => handleMenuAction(action, ctx))
+          .catch(() => {}),
       0,
     );
   });

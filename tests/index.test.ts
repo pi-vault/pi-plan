@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
 import { createMockContext, createMockPi } from "./helpers.ts";
 import { PLAN_MENU_LABELS } from "../src/tui/menus.ts";
@@ -763,5 +763,85 @@ describe("getArgumentCompletions", () => {
     expect(values).toContain("exit");
     expect(values).toContain("off");
     expect(values).toContain("tools");
+  });
+});
+
+describe("agent_end auto-show menu", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("auto-shows plan-ready menu and processes action after plan detection", async () => {
+    vi.useFakeTimers();
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.implement] });
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("", ctx.ctx); // enter plan mode
+
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            content:
+              "<proposed_plan>\n# Auto Plan\n## Summary\nDo the thing\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
+
+    // Timer hasn't fired yet — plan mode still active
+    expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
+
+    // Advance the timer
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Menu was shown and "implement" was selected — plan mode exited
+    expect(ctx.selectCalls).toHaveLength(1);
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+    expect(mock.userMessages).toHaveLength(1);
+    expect(mock.userMessages[0].content as string).toContain("# Auto Plan");
+  });
+
+  it("cancels auto-menu when user manually invokes /plan first", async () => {
+    vi.useFakeTimers();
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    // First response for the manual /plan menu, second would be for auto-menu (should not fire)
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("", ctx.ctx); // enter plan mode
+
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
+
+    // User manually invokes /plan before timer fires — cancels pending auto-menu
+    await handler("", ctx.ctx);
+
+    // Only one select call (from the manual /plan)
+    expect(ctx.selectCalls).toHaveLength(1);
+
+    // Advance timer — nothing should happen since it was cleared
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Still only one select call
+    expect(ctx.selectCalls).toHaveLength(1);
   });
 });
