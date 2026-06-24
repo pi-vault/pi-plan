@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { buildPlanModePrompt } from "./core/prompt.ts";
 import { isSafeCommand } from "./core/safety.ts";
 import { createInitialState, enterPlanMode, exitPlanMode, restoreState } from "./core/state.ts";
-import { defaultPlanModeToolNames, normalModeToolNames } from "./core/tools.ts";
+import { normalModeToolNames, planModeToolNamesWithSelections } from "./core/tools.ts";
 import { extractProposedPlan, filterPlanModeEntries, getAssistantMessageText } from "./core/context.ts";
 import {
   BLOCKED_BUILTIN_TOOLS,
@@ -13,7 +13,7 @@ import {
 import type { PlanModeState } from "./shared/types.ts";
 import { formatStatus } from "./tui/status.ts";
 import { formatWidgetLines } from "./tui/widgets.ts";
-import { showPlanMenu, showPlanReadyMenu, type PlanMenuAction } from "./tui/menus.ts";
+import { showPlanMenu, showPlanReadyMenu, showToolSelector, type PlanMenuAction } from "./tui/menus.ts";
 
 export default function createExtension(pi: ExtensionAPI): void {
   let state: PlanModeState = createInitialState();
@@ -44,7 +44,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     if (previousTools === undefined) {
       previousTools = pi.getActiveTools();
     }
-    pi.setActiveTools(defaultPlanModeToolNames());
+    pi.setActiveTools(planModeToolNamesWithSelections(state.selectedToolNames));
   }
 
   function restoreTools(): void {
@@ -78,6 +78,24 @@ export default function createExtension(pi: ExtensionAPI): void {
     pi.sendUserMessage(content, ctx.isIdle() ? undefined : { deliverAs: "followUp" });
   }
 
+  async function runToolSelector(ctx: ExtensionContext): Promise<void> {
+    const allTools = pi.getAllTools();
+    const selections = await showToolSelector(ctx, allTools, state);
+    if (selections === undefined) {
+      ctx.ui.notify("No changes to Plan-mode tools.", "info");
+      return;
+    }
+    state = { ...state, selectedToolNames: selections };
+    activatePlanModeTools();
+    persist();
+    const count = selections.length;
+    const msg =
+      count === 0
+        ? "Plan-mode tools reset to defaults."
+        : `Plan-mode tools updated: ${count} extension tool(s) enabled.`;
+    ctx.ui.notify(msg, "info");
+  }
+
   async function handleMenuAction(action: PlanMenuAction, ctx: ExtensionContext): Promise<void> {
     switch (action) {
       case "implement": {
@@ -102,8 +120,7 @@ export default function createExtension(pi: ExtensionAPI): void {
         }
         break;
       case "tools":
-        // Phase 4: show tool selector
-        ctx.ui.notify("Tool selector not yet available.", "info");
+        await runToolSelector(ctx);
         break;
       default:
         break;
@@ -128,8 +145,7 @@ export default function createExtension(pi: ExtensionAPI): void {
           doEnter(ctx);
           ctx.ui.notify("Plan mode enabled. Write tools disabled.", "info");
         }
-        // Phase 4: show tool selector
-        ctx.ui.notify("Tool selector not yet available.", "info");
+        await runToolSelector(ctx);
         return;
       }
 
@@ -188,7 +204,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   pi.on("before_agent_start", async (event, ctx) => {
     if (!state.enabled) return;
-    pi.setActiveTools(defaultPlanModeToolNames());
+    pi.setActiveTools(planModeToolNamesWithSelections(state.selectedToolNames));
     state = { ...state, latestPlan: undefined, awaitingAction: false };
     updateUi(ctx);
     return { systemPrompt: `${event.systemPrompt}\n\n${buildPlanModePrompt()}` };
