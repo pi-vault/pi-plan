@@ -12,6 +12,18 @@
 
 **Depends on:** Phase 1 + Phase 2 (`docs/plans/2026-06-22-phase-1-plan-mode-toggle.md`, `docs/plans/2026-06-22-phase-2-prompt-and-detection.md`)
 
+### Revision notes (v2)
+
+Corrections from review against the live codebase and SDK types:
+
+1. **`SessionEntry` import** -- kept from `@earendil-works/pi-coding-agent` (not re-exported by `src/shared/types.ts`).
+2. **`ExtensionCommandContext`** -- kept in test helpers (SDK command handlers receive `ExtensionCommandContext`, not `ExtensionContext`).
+3. **`select()` mock** -- matches SDK signature `select(title: string, options: string[])`, not the object-style `{ title, items }` API. Menu functions use the real SDK API directly instead of double-casting to a made-up interface.
+4. **`before_agent_start`** -- keeps `ctx` param and `updateUi(ctx)` call so "clears stale plan state for new turn" test still passes.
+5. **Toggle-off tests** -- all 4 tests that relied on `handler("", ctx.ctx)` toggle-off are updated (not just one).
+6. **`setTimeout` cleanup** -- `pendingMenuTimer` is tracked and cleared on `doExit` / `session_shutdown` to prevent cross-test pollution.
+7. **`getArgumentCompletions`** -- returns `AutocompleteItem[]` (matching SDK `RegisteredCommand` type), not `string[]`. Tests updated accordingly.
+
 ---
 
 ### Task 1: Update test helpers to support ctx.ui.select
@@ -21,11 +33,15 @@
 
 - [ ] **Step 1: Replace `tests/helpers.ts` with updated version**
 
-The updated mock adds `select()` to `ctx.ui` and `selectCalls` tracking to `MockContext`:
+The updated mock adds `select()` to `ctx.ui` (matching the SDK signature `select(title: string, options: string[])`), adds `selectCalls` tracking to `MockContext`, and fixes `setWidget` to delete the key when value is `undefined`.
 
 ```typescript
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { SessionEntry } from "../src/shared/types.ts";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ExtensionContext,
+  SessionEntry,
+} from "@earendil-works/pi-coding-agent";
 
 interface RegisteredFlag {
   description?: string;
@@ -35,11 +51,14 @@ interface RegisteredFlag {
 
 interface RegisteredCommand {
   description?: string;
-  handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+  handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
   getArgumentCompletions?: (prefix: string) => unknown;
 }
 
-type EventHandler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
+type EventHandler = (
+  event: unknown,
+  ctx: ExtensionContext,
+) => Promise<unknown> | unknown;
 
 export interface MockPi {
   pi: ExtensionAPI;
@@ -55,11 +74,11 @@ export interface MockPi {
 }
 
 export interface MockContext {
-  ctx: ExtensionContext;
+  ctx: ExtensionCommandContext;
   statuses: Map<string, string | undefined>;
   notifications: Array<{ message: string; type?: string }>;
   widgets: Map<string, unknown>;
-  selectCalls: Array<{ title?: string; items: unknown[] }>;
+  selectCalls: Array<{ title: string; options: string[] }>;
 }
 
 export function createMockPi(options?: { activeTools?: string[] }): MockPi {
@@ -76,7 +95,9 @@ export function createMockPi(options?: { activeTools?: string[] }): MockPi {
     pi: {
       registerFlag(name: string, opts: RegisteredFlag) {
         flags.set(name, opts);
-        if (opts.default !== undefined) flagValues.set(name, opts.default);
+        if (opts.default !== undefined && !flagValues.has(name)) {
+          flagValues.set(name, opts.default);
+        }
       },
       registerCommand(name: string, opts: RegisteredCommand) {
         commands.set(name, opts);
@@ -136,9 +157,9 @@ export function createMockContext(options?: {
   const statuses = new Map<string, string | undefined>();
   const notifications: Array<{ message: string; type?: string }> = [];
   const widgets = new Map<string, unknown>();
-  const selectCalls: Array<{ title?: string; items: unknown[] }> = [];
+  const selectCalls: Array<{ title: string; options: string[] }> = [];
   const selectQueue = [...(options?.selectResponses ?? [])];
-  const sessionEntries = options?.entries ?? [];
+  const sessionEntries: SessionEntry[] = options?.entries ?? [];
 
   const mockCtx: MockContext = {
     ctx: {
@@ -156,8 +177,8 @@ export function createMockContext(options?: {
             widgets.set(key, content);
           }
         },
-        async select(opts: { title?: string; items: unknown[] }) {
-          selectCalls.push(opts);
+        async select(title: string, options: string[]) {
+          selectCalls.push({ title, options });
           return selectQueue.shift();
         },
         theme: {
@@ -171,7 +192,7 @@ export function createMockContext(options?: {
       sessionManager: {
         getEntries: () => sessionEntries,
       },
-    } as unknown as ExtensionContext,
+    } as unknown as ExtensionCommandContext,
     statuses,
     notifications,
     widgets,
@@ -204,31 +225,33 @@ git commit -m "feat: add ctx.ui.select mock to test helpers"
 - Create: `src/tui/menus.ts`
 - Create: `tests/tui/menus.test.ts`
 
+The SDK's `ctx.ui.select()` signature is `select(title: string, options: string[]): Promise<string | undefined>`. It returns the selected option string or `undefined` if cancelled. Menu functions pass human-readable labels as options and map the returned label to a `PlanMenuAction` value.
+
 - [ ] **Step 1: Write the failing tests**
 
 Create `tests/tui/menus.test.ts`:
 
 ```typescript
 import { describe, expect, it } from "vitest";
-import { showPlanMenu, showPlanReadyMenu } from "../../src/tui/menus.ts";
+import { PLAN_MENU_LABELS, showPlanMenu, showPlanReadyMenu } from "../../src/tui/menus.ts";
 import { createInitialState } from "../../src/core/state.ts";
 import { createMockContext } from "../helpers.ts";
 
 describe("showPlanReadyMenu", () => {
-  it("returns implement when user selects implement", async () => {
-    const ctx = createMockContext({ selectResponses: ["implement"] });
+  it("returns implement when user selects implement label", async () => {
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.implement] });
     const action = await showPlanReadyMenu(ctx.ctx);
     expect(action).toBe("implement");
   });
 
-  it("returns stay when user selects stay", async () => {
-    const ctx = createMockContext({ selectResponses: ["stay"] });
+  it("returns stay when user selects stay label", async () => {
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
     const action = await showPlanReadyMenu(ctx.ctx);
     expect(action).toBe("stay");
   });
 
-  it("returns exit when user selects exit", async () => {
-    const ctx = createMockContext({ selectResponses: ["exit"] });
+  it("returns exit when user selects exit label", async () => {
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.exit] });
     const action = await showPlanReadyMenu(ctx.ctx);
     expect(action).toBe("exit");
   });
@@ -239,41 +262,39 @@ describe("showPlanReadyMenu", () => {
     expect(action).toBe("stay");
   });
 
-  it("calls ctx.ui.select with three items", async () => {
-    const ctx = createMockContext({ selectResponses: ["stay"] });
+  it("calls ctx.ui.select with three options", async () => {
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
     await showPlanReadyMenu(ctx.ctx);
     expect(ctx.selectCalls).toHaveLength(1);
-    expect(ctx.selectCalls[0].items).toHaveLength(3);
+    expect(ctx.selectCalls[0].options).toHaveLength(3);
   });
 });
 
 describe("showPlanMenu", () => {
-  it("includes show-plan and implement when plan exists", async () => {
-    const ctx = createMockContext({ selectResponses: ["stay"] });
+  it("includes show-plan and implement options when plan exists", async () => {
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
     const state = { ...createInitialState(), enabled: true, latestPlan: "# My Plan" };
     await showPlanMenu(ctx.ctx, state);
-    const items = ctx.selectCalls[0].items as Array<{ value: string }>;
-    const values = items.map((i) => i.value);
-    expect(values).toContain("show-plan");
-    expect(values).toContain("implement");
-    expect(values).toContain("stay");
-    expect(values).toContain("exit");
+    const options = ctx.selectCalls[0].options;
+    expect(options).toContain(PLAN_MENU_LABELS["show-plan"]);
+    expect(options).toContain(PLAN_MENU_LABELS.implement);
+    expect(options).toContain(PLAN_MENU_LABELS.stay);
+    expect(options).toContain(PLAN_MENU_LABELS.exit);
   });
 
-  it("excludes show-plan and implement when no plan exists", async () => {
-    const ctx = createMockContext({ selectResponses: ["stay"] });
+  it("excludes show-plan and implement options when no plan exists", async () => {
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
     const state = { ...createInitialState(), enabled: true };
     await showPlanMenu(ctx.ctx, state);
-    const items = ctx.selectCalls[0].items as Array<{ value: string }>;
-    const values = items.map((i) => i.value);
-    expect(values).not.toContain("show-plan");
-    expect(values).not.toContain("implement");
-    expect(values).toContain("stay");
-    expect(values).toContain("exit");
+    const options = ctx.selectCalls[0].options;
+    expect(options).not.toContain(PLAN_MENU_LABELS["show-plan"]);
+    expect(options).not.toContain(PLAN_MENU_LABELS.implement);
+    expect(options).toContain(PLAN_MENU_LABELS.stay);
+    expect(options).toContain(PLAN_MENU_LABELS.exit);
   });
 
   it("returns selected action", async () => {
-    const ctx = createMockContext({ selectResponses: ["exit"] });
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.exit] });
     const state = { ...createInitialState(), enabled: true };
     const action = await showPlanMenu(ctx.ctx, state);
     expect(action).toBe("exit");
@@ -295,51 +316,56 @@ Expected: FAIL -- `showPlanReadyMenu` not found
 
 - [ ] **Step 3: Implement `src/tui/menus.ts`**
 
+Uses the SDK's `ctx.ui.select(title, options)` directly. Maps label strings to action values via a constant lookup table.
+
 ```typescript
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { PlanModeState } from "../shared/types.ts";
 
 export type PlanMenuAction = "implement" | "stay" | "exit" | "show-plan" | "tools";
 
+export const PLAN_MENU_LABELS: Record<PlanMenuAction, string> = {
+  implement: "Implement this plan",
+  stay: "Stay in Plan mode",
+  exit: "Exit Plan mode",
+  "show-plan": "Show latest proposed plan",
+  tools: "Configure tools",
+};
+
+const LABEL_TO_ACTION = new Map<string, PlanMenuAction>(
+  Object.entries(PLAN_MENU_LABELS).map(([action, label]) => [label, action as PlanMenuAction]),
+);
+
+function resolveAction(choice: string | undefined): PlanMenuAction {
+  if (!choice) return "stay";
+  return LABEL_TO_ACTION.get(choice) ?? "stay";
+}
+
 export async function showPlanReadyMenu(ctx: ExtensionContext): Promise<PlanMenuAction> {
-  const choice = await (ctx.ui as unknown as {
-    select(opts: { title?: string; items: Array<{ label: string; value: string }> }): Promise<
-      string | undefined
-    >;
-  }).select({
-    title: "Plan ready",
-    items: [
-      { label: "Implement this plan", value: "implement" },
-      { label: "Stay in Plan mode", value: "stay" },
-      { label: "Exit Plan mode", value: "exit" },
-    ],
-  });
-  return (choice as PlanMenuAction) ?? "stay";
+  const choice = await ctx.ui.select("Plan ready", [
+    PLAN_MENU_LABELS.implement,
+    PLAN_MENU_LABELS.stay,
+    PLAN_MENU_LABELS.exit,
+  ]);
+  return resolveAction(choice);
 }
 
 export async function showPlanMenu(
   ctx: ExtensionContext,
   state: PlanModeState,
 ): Promise<PlanMenuAction> {
-  const items: Array<{ label: string; value: string }> = [];
+  const options: string[] = [];
 
   if (state.latestPlan) {
-    items.push({ label: "Show latest proposed plan", value: "show-plan" });
-    items.push({ label: "Implement this plan", value: "implement" });
+    options.push(PLAN_MENU_LABELS["show-plan"]);
+    options.push(PLAN_MENU_LABELS.implement);
   }
 
-  items.push({ label: "Stay in Plan mode", value: "stay" });
-  items.push({ label: "Exit Plan mode", value: "exit" });
+  options.push(PLAN_MENU_LABELS.stay);
+  options.push(PLAN_MENU_LABELS.exit);
 
-  const choice = await (ctx.ui as unknown as {
-    select(opts: { title?: string; items: Array<{ label: string; value: string }> }): Promise<
-      string | undefined
-    >;
-  }).select({
-    title: "Plan mode",
-    items,
-  });
-  return (choice as PlanMenuAction) ?? "stay";
+  const choice = await ctx.ui.select("Plan mode", options);
+  return resolveAction(choice);
 }
 ```
 
@@ -361,6 +387,15 @@ git commit -m "feat: add plan ready and plan menus"
 
 **Files:**
 - Modify: `src/index.ts`
+- Modify: `tests/index.test.ts`
+
+Key behavioral changes from Phase 2:
+- `/plan` with no args when already in plan mode shows menu (was: toggle off)
+- `/plan <prompt>` enters plan mode if needed and sends the prompt
+- `/plan exit`, `/plan off` still exit directly
+- `/plan tools` is a stub for Phase 4
+- `agent_end` auto-shows plan-ready menu via `setTimeout(0)`, tracked for cleanup
+- `getArgumentCompletions` returns `AutocompleteItem[]`
 
 - [ ] **Step 1: Replace `src/index.ts` with Phase 3 version**
 
@@ -377,7 +412,7 @@ import {
   STATUS_KEY,
   WIDGET_KEY,
 } from "./shared/constants.ts";
-import type { PlanModeState, SessionEntry } from "./shared/types.ts";
+import type { PlanModeState } from "./shared/types.ts";
 import { formatStatus } from "./tui/status.ts";
 import { formatWidgetLines } from "./tui/widgets.ts";
 import { showPlanMenu, showPlanReadyMenu, type PlanMenuAction } from "./tui/menus.ts";
@@ -385,6 +420,7 @@ import { showPlanMenu, showPlanReadyMenu, type PlanMenuAction } from "./tui/menu
 export default function createExtension(pi: ExtensionAPI): void {
   let state: PlanModeState = createInitialState();
   let previousTools: string[] | undefined;
+  let pendingMenuTimer: ReturnType<typeof setTimeout> | undefined;
 
   pi.registerFlag("plan", {
     description: "Start in plan mode (read-only exploration)",
@@ -418,6 +454,13 @@ export default function createExtension(pi: ExtensionAPI): void {
     previousTools = undefined;
   }
 
+  function clearPendingMenu(): void {
+    if (pendingMenuTimer !== undefined) {
+      clearTimeout(pendingMenuTimer);
+      pendingMenuTimer = undefined;
+    }
+  }
+
   function doEnter(ctx: ExtensionContext): void {
     state = enterPlanMode(state);
     activatePlanModeTools();
@@ -426,6 +469,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   }
 
   function doExit(ctx: ExtensionContext): void {
+    clearPendingMenu();
     state = exitPlanMode(state);
     restoreTools();
     persist();
@@ -513,7 +557,12 @@ export default function createExtension(pi: ExtensionAPI): void {
       await handleMenuAction(action, ctx);
     },
     getArgumentCompletions: (prefix: string) => {
-      return ["exit", "off", "tools"].filter((c) => c.startsWith(prefix.toLowerCase()));
+      const items = [
+        { value: "exit", label: "exit", description: "Exit plan mode" },
+        { value: "off", label: "off", description: "Exit plan mode" },
+        { value: "tools", label: "tools", description: "Configure plan mode tools" },
+      ];
+      return items.filter((c) => c.value.startsWith(prefix.toLowerCase()));
     },
   });
 
@@ -539,16 +588,17 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
   });
 
-  pi.on("before_agent_start", async (event) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     if (!state.enabled) return;
     pi.setActiveTools(defaultPlanModeToolNames());
     state = { ...state, latestPlan: undefined, awaitingAction: false };
-    return { systemPrompt: (event.systemPrompt as string) + "\n\n" + buildPlanModePrompt() };
+    updateUi(ctx);
+    return { systemPrompt: `${event.systemPrompt}\n\n${buildPlanModePrompt()}` };
   });
 
   pi.on("agent_end", async (event, ctx) => {
     if (!state.enabled) return;
-    const messages = (event.messages as Array<Record<string, unknown>>) ?? [];
+    const messages = (event.messages as unknown as Array<Record<string, unknown>>) ?? [];
     const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
     if (!lastAssistant) return;
     const text = getAssistantMessageText(lastAssistant);
@@ -558,22 +608,23 @@ export default function createExtension(pi: ExtensionAPI): void {
     persist();
     updateUi(ctx);
     // Auto-show plan-ready menu after current event loop tick
-    setTimeout(
+    clearPendingMenu();
+    pendingMenuTimer = setTimeout(
       () => void showPlanReadyMenu(ctx).then((action) => handleMenuAction(action, ctx)),
       0,
     );
   });
 
   pi.on("context", async (event) => {
-    const messages = (event.messages as Array<Record<string, unknown>>) ?? [];
+    const messages = (event.messages as unknown as Array<Record<string, unknown>>) ?? [];
     const filtered = filterPlanModeEntries(messages, STATE_ENTRY_TYPE);
     if (filtered.length !== messages.length) {
-      return { messages: filtered };
+      return { messages: filtered as unknown as typeof event.messages };
     }
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    const entries = ctx.sessionManager.getEntries() as SessionEntry[];
+    const entries = ctx.sessionManager.getEntries();
     state = restoreState(entries);
 
     if (pi.getFlag("plan") === true) {
@@ -587,32 +638,30 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
+    clearPendingMenu();
     persist();
     clearUi(ctx);
   });
 }
 ```
 
-- [ ] **Step 2: Run tests to verify Phase 1+2 tests still pass**
+- [ ] **Step 2: Update tests that relied on toggle-off behavior**
 
-Run: `cd /Users/lanh/Developer/pi-vault/pi-plan && pnpm test`
-Expected: ALL PASS
+Four existing tests call `handler("", ctx.ctx)` twice expecting the second call to toggle plan mode off. Phase 3 changes that second call to show a menu instead. Update these tests to use `handler("exit", ctx.ctx)` for the exit path.
 
-Note: The Phase 1 test "toggles plan mode off" by running `/plan` twice will now FAIL because the second `/plan` in plan mode shows a menu instead of toggling off. Update that test in the next step.
+**Test 1:** "toggles plan mode off" -- replace entirely:
 
-- [ ] **Step 3: Update the "toggles plan mode off" test in `tests/index.test.ts`**
-
-Find the test:
+Find:
 ```typescript
 it("toggles plan mode off", async () => {
 ```
 
-Replace it with:
+Replace the entire `it` block with:
 ```typescript
 it("shows plan menu when /plan is run in plan mode", async () => {
   const mock = createMockPi();
   createExtension(mock.pi);
-  const ctx = createMockContext({ selectResponses: ["stay"] });
+  const ctx = createMockContext({ selectResponses: ["Stay in Plan mode"] });
 
   const handler = mock.commands.get("plan")!.handler;
   await handler("", ctx.ctx); // on
@@ -626,12 +675,66 @@ it("shows plan menu when /plan is run in plan mode", async () => {
 });
 ```
 
-- [ ] **Step 4: Run tests to verify they all pass**
+**Test 2:** "restores previous tools on exit" -- change exit method:
+
+Find:
+```typescript
+await handler("", ctx.ctx); // on
+    await handler("", ctx.ctx); // off
+
+    expect(mock.activeTools).toContain("edit");
+```
+
+Replace with:
+```typescript
+await handler("", ctx.ctx); // on
+    await handler("exit", ctx.ctx); // off
+
+    expect(mock.activeTools).toContain("edit");
+```
+
+**Test 3:** "persists state on enter and exit" -- change exit method:
+
+Find:
+```typescript
+await handler("", ctx.ctx); // on
+    await handler("", ctx.ctx); // off
+
+    const planEntries = mock.entries.filter(
+```
+
+Replace with:
+```typescript
+await handler("", ctx.ctx); // on
+    await handler("exit", ctx.ctx); // off
+
+    const planEntries = mock.entries.filter(
+```
+
+**Test 4:** "clears widget when plan mode exits" -- change exit method:
+
+Find:
+```typescript
+await mock.commands.get("plan")!.handler("", ctx.ctx); // on
+    expect(ctx.widgets.get("pi-plan")).toBeDefined();
+
+    await mock.commands.get("plan")!.handler("", ctx.ctx); // off
+```
+
+Replace with:
+```typescript
+await mock.commands.get("plan")!.handler("", ctx.ctx); // on
+    expect(ctx.widgets.get("pi-plan")).toBeDefined();
+
+    await mock.commands.get("plan")!.handler("exit", ctx.ctx); // off
+```
+
+- [ ] **Step 3: Run tests**
 
 Run: `cd /Users/lanh/Developer/pi-vault/pi-plan && pnpm test`
-Expected: ALL PASS
+Expected: ALL PASS (or only new-test-related failures from Task 4 not yet added)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add src/index.ts tests/index.test.ts
@@ -647,6 +750,11 @@ git commit -m "feat: wire plan menus, subcommands, and message delivery"
 
 - [ ] **Step 1: Append Phase 3 integration tests to `tests/index.test.ts`**
 
+Import the label constants at the top of the file (add after existing imports):
+```typescript
+import { PLAN_MENU_LABELS } from "../src/tui/menus.ts";
+```
+
 Add the following `describe` blocks at the end of the file:
 
 ```typescript
@@ -654,7 +762,7 @@ describe("plan menu actions", () => {
   it("implement: exits plan mode and sends implementation message", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
-    const ctx = createMockContext({ selectResponses: ["implement"] });
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.implement] });
 
     const handler = mock.commands.get("plan")!.handler;
     await handler("", ctx.ctx); // enter plan mode
@@ -689,7 +797,7 @@ describe("plan menu actions", () => {
   it("exit: exits plan mode without sending message", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
-    const ctx = createMockContext({ selectResponses: ["exit"] });
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.exit] });
 
     const handler = mock.commands.get("plan")!.handler;
     await handler("", ctx.ctx); // enter plan mode
@@ -702,7 +810,7 @@ describe("plan menu actions", () => {
   it("stay: keeps plan mode active", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
-    const ctx = createMockContext({ selectResponses: ["stay"] });
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
 
     const handler = mock.commands.get("plan")!.handler;
     await handler("", ctx.ctx);
@@ -715,7 +823,7 @@ describe("plan menu actions", () => {
   it("show-plan: notifies with plan content", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
-    const ctx = createMockContext({ selectResponses: ["show-plan"] });
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS["show-plan"]] });
 
     const handler = mock.commands.get("plan")!.handler;
     await handler("", ctx.ctx);
@@ -784,19 +892,25 @@ describe("getArgumentCompletions", () => {
   it("returns completions for matching prefix", () => {
     const mock = createMockPi();
     createExtension(mock.pi);
-    const completions = mock.commands.get("plan")!.getArgumentCompletions?.("e");
-    expect(completions).toContain("exit");
-    expect(completions).not.toContain("tools");
-    expect(completions).not.toContain("off");
+    const completions = mock.commands.get("plan")!.getArgumentCompletions?.("e") as
+      | Array<{ value: string }>
+      | undefined;
+    const values = completions?.map((c) => c.value) ?? [];
+    expect(values).toContain("exit");
+    expect(values).not.toContain("tools");
+    expect(values).not.toContain("off");
   });
 
   it("returns all completions for empty prefix", () => {
     const mock = createMockPi();
     createExtension(mock.pi);
-    const completions = mock.commands.get("plan")!.getArgumentCompletions?.("") as string[];
-    expect(completions).toContain("exit");
-    expect(completions).toContain("off");
-    expect(completions).toContain("tools");
+    const completions = mock.commands.get("plan")!.getArgumentCompletions?.("") as
+      | Array<{ value: string }>
+      | undefined;
+    const values = completions?.map((c) => c.value) ?? [];
+    expect(values).toContain("exit");
+    expect(values).toContain("off");
+    expect(values).toContain("tools");
   });
 });
 ```

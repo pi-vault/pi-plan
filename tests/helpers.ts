@@ -40,6 +40,7 @@ export interface MockContext {
   statuses: Map<string, string | undefined>;
   notifications: Array<{ message: string; type?: string }>;
   widgets: Map<string, unknown>;
+  selectCalls: Array<{ title: string; options: string[] }>;
 }
 
 export function createMockPi(options?: { activeTools?: string[] }): MockPi {
@@ -113,10 +114,13 @@ export function createMockContext(options?: {
   entries?: SessionEntry[];
   hasUI?: boolean;
   isIdle?: boolean;
+  selectResponses?: string[];
 }): MockContext {
   const statuses = new Map<string, string | undefined>();
   const notifications: Array<{ message: string; type?: string }> = [];
   const widgets = new Map<string, unknown>();
+  const selectCalls: Array<{ title: string; options: string[] }> = [];
+  const selectQueue = [...(options?.selectResponses ?? [])];
   const sessionEntries: SessionEntry[] = options?.entries ?? [];
 
   const mockCtx: MockContext = {
@@ -129,7 +133,15 @@ export function createMockContext(options?: {
           notifications.push({ message, type });
         },
         setWidget(key: string, content: unknown) {
-          widgets.set(key, content);
+          if (content === undefined) {
+            widgets.delete(key);
+          } else {
+            widgets.set(key, content);
+          }
+        },
+        async select(title: string, options: string[]) {
+          selectCalls.push({ title, options });
+          return selectQueue.shift();
         },
         theme: {
           fg(_color: string, text: string) {
@@ -146,6 +158,7 @@ export function createMockContext(options?: {
     statuses,
     notifications,
     widgets,
+    selectCalls,
   };
 
   return mockCtx;
