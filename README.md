@@ -5,11 +5,17 @@
 [![Node >= 24.15.0](https://img.shields.io/badge/node-%3E%3D24.15.0-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
-Add a read-only planning mode to Pi so the agent explores first, clarifies intent, and produces a decision-complete plan before any code mutation happens. `@pi-vault/pi-plan` installs a `/plan` command, blocks write tools while planning, and offers a clean handoff back to normal execution when the plan is ready.
+## Description
 
-## Install, Upgrade, And Reload
+`@pi-vault/pi-plan` adds a read-only plan mode to Pi so you can explore a codebase, clarify the request, and get a decision-complete implementation plan before any code changes happen.
 
-Install or upgrade the extension:
+## Screenshots
+
+![Plan mode active in Pi showing the plan-mode widget and status line](docs/assets/plan-mode-active-ui.png)
+![Plan mode menu opened from /plan with Configure tools, Stay in Plan mode, and Exit Plan mode options](docs/assets/plan-mode-menu-ui.png)
+![Plan-mode tool selector showing built-in tools with policy labels and optional extension tools flagged as user risk](docs/assets/plan-mode-tools-ui.png)
+
+## Install
 
 ```bash
 pi install npm:@pi-vault/pi-plan
@@ -23,81 +29,96 @@ Reload Pi after installing or upgrading:
 
 ## Quick Start
 
-Enter plan mode:
+Start plan mode:
 
 ```text
 /plan
 ```
 
-Enter plan mode and immediately give the agent a planning prompt:
+Start plan mode and send the planning prompt immediately:
 
 ```text
-/plan add release notes and update package docs
+/plan prepare the next release notes and docs
 ```
 
-Configure which extra extension tools are available during plan mode:
+Configure additional optional tools that are available during plan mode:
 
 ```text
-/plan tools
+/plan:tools
 ```
 
-Leave plan mode and restore full tool access:
+Exit plan mode and restore full tool access:
 
 ```text
-/plan exit
+/plan:exit
 ```
 
-You can also use `/plan off` as an alias for exiting.
-
-## How It Works
-
-### Read-only planning mode
-
-When plan mode is active, the agent stays in exploration and planning mode until you explicitly exit or choose to implement the proposed plan.
-
-### Tool safety
-
-- Built-in `edit` and `write` are blocked.
-- `bash` is limited to an allowlisted set of read-only commands.
-- Mutating shell commands are blocked with an explicit plan-mode error.
-- Safe built-in planning tools stay available: `read`, `bash`, `grep`, `find`, and `ls`.
-
-### Proposed plan detection and handoff
-
-The extension injects a plan-mode system prompt that tells the agent to produce exactly one `<proposed_plan>` block.
-
-When the agent returns a proposed plan, `pi-plan`:
-
-- detects the block automatically
-- stores the latest plan in session state
-- updates the status/widget UI to show that a plan is ready
-- opens a ready menu so you can implement, stay in plan mode, or exit
-
-If you choose **Implement this plan**, plan mode turns off, full tool access is restored, and the plan is sent back into the conversation as the next implementation instruction.
-
-### Menus and `/plan tools`
-
-Running `/plan` while plan mode is already active opens the plan menu.
-
-Depending on state, the menu lets you:
-
-- show the latest proposed plan
-- implement the proposed plan
-- configure plan-mode tools
-- stay in plan mode
-- exit plan mode
-
-`/plan tools` opens a paginated selector for optional extension tools. Safe built-in planning tools remain on, blocked built-ins stay blocked, and your extra selections persist across turns and session restore.
-
-### Start Pi directly in plan mode
-
-You can start a session in plan mode with the `--plan` flag:
+Start Pi directly in plan mode:
 
 ```bash
 pi --plan
 ```
 
-## Development And Verification
+## What Plan Mode Does
+
+When plan mode is active, the agent stays in exploration and planning mode until you explicitly exit or choose to implement the proposed plan.
+
+Plan mode is designed for work that benefits from an explore-first workflow:
+
+- inspect the repo before changing anything
+- clarify requirements and tradeoffs
+- produce a single decision-complete `<proposed_plan>` block
+- hand the approved plan back into normal execution when you are ready
+
+## Command Reference
+
+### `/plan`
+
+- If plan mode is off, `/plan` turns it on.
+- If you pass text after `/plan`, that text is sent as the planning prompt.
+- If plan mode is already on and you run `/plan` with no arguments, Pi opens the plan-mode menu.
+
+### `/plan:tools`
+
+Opens the plan-mode tool selector. If plan mode is not active yet, Pi enables plan mode first and then opens the selector.
+
+Use this when you want to allow additional tools during planning. Built-in `edit` and `write` stay blocked, but extra tools may have broader capabilities, so enable them deliberately.
+
+### `/plan:exit`
+
+Turns off plan mode and restores the tool set that was active before planning started.
+
+## Safety Rules During Plan Mode
+
+Plan mode keeps the agent in a read-only workflow by changing which tools are available:
+
+- built-in `edit` and `write` are blocked
+- `bash` is limited to allowlisted read-only commands
+- mutating shell commands are blocked with an explicit plan-mode error
+- safe built-in planning tools remain available: `read`, `bash`, `grep`, `find`, and `ls`
+
+Additional optional tools are off by default. You can selectively enable them with `/plan:tools`. Built-in `edit` and `write` remain blocked, but enabled extra tools may still be able to mutate state through their own interfaces.
+
+## Proposed Plan Detection And Handoff
+
+The extension adds a plan-mode system prompt that tells the agent to produce exactly one `<proposed_plan>` block.
+
+When the agent returns a proposed plan, `@pi-vault/pi-plan` automatically:
+
+- detects the plan block
+- stores the latest proposed plan in session state
+- updates the status and widget UI to show that a plan is ready
+- opens a ready menu so you can implement the plan, stay in plan mode, or exit
+
+If you choose **Implement this plan**, plan mode is disabled first, full tool access is restored, and the saved plan is sent back into the conversation as the next implementation instruction.
+
+## Tool Selector
+
+`/plan:tools` opens a custom TUI selector for additional optional tools.
+
+Safe built-in planning tools always stay available, blocked built-ins stay blocked, and any extra tools you enable persist across turns and session restore. Non-built-in tools run at your discretion and may provide capabilities beyond the default read-only planning tool set.
+
+## Development
 
 ```bash
 pnpm install
