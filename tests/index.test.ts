@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
+import { PLAN_MENU_LABELS } from "../src/tui/menus.ts";
 import { createMockContext, createMockPi } from "./helpers.ts";
-import { PLAN_MENU_LABELS, TOOL_SELECTOR_LABELS } from "../src/tui/menus.ts";
 
 describe("createExtension", () => {
   it("registers the plan flag", () => {
@@ -11,10 +11,12 @@ describe("createExtension", () => {
     expect(mock.flags.get("plan")?.type).toBe("boolean");
   });
 
-  it("registers the plan command", () => {
+  it("registers plan, plan:exit, and plan:tools commands", () => {
     const mock = createMockPi();
     createExtension(mock.pi);
     expect(mock.commands.has("plan")).toBe(true);
+    expect(mock.commands.has("plan:exit")).toBe(true);
+    expect(mock.commands.has("plan:tools")).toBe(true);
   });
 
   it("registers session_start, session_shutdown, tool_call, and before_agent_start handlers", () => {
@@ -37,49 +39,55 @@ describe("/plan command", () => {
     await handler("", ctx.ctx);
 
     expect(ctx.statuses.get("pi-plan")).toBe("plan active");
-    expect(ctx.notifications.some((n) => n.message.includes("enabled"))).toBe(
-      true,
-    );
+    expect(ctx.notifications.some((n) => n.message.includes("enabled"))).toBe(true);
   });
 
   it("shows plan menu when /plan is run in plan mode", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
-    const ctx = createMockContext({ selectResponses: ["Stay in Plan mode"] });
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
 
     const handler = mock.commands.get("plan")!.handler;
     await handler("", ctx.ctx); // on
+    await handler("", ctx.ctx); // menu
 
-    // Second /plan shows menu, not toggle
-    await handler("", ctx.ctx);
-
-    // Plan mode is still on (we chose "stay")
     expect(ctx.statuses.get("pi-plan")).toBe("plan active");
     expect(ctx.selectCalls).toHaveLength(1);
   });
 
-  it("exits plan mode with /plan exit", async () => {
+  it("treats any args as a prompt", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
     const ctx = createMockContext();
 
     const handler = mock.commands.get("plan")!.handler;
-    await handler("", ctx.ctx); // on
     await handler("exit", ctx.ctx);
+
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+    expect(mock.userMessages).toHaveLength(1);
+    expect(mock.userMessages[0].content).toBe("exit");
+  });
+});
+
+describe("/plan:exit command", () => {
+  it("exits plan mode", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+
+    await mock.commands.get("plan")!.handler("", ctx.ctx); // on
+    await mock.commands.get("plan:exit")!.handler("", ctx.ctx);
 
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
   });
 
-  it("exits plan mode with /plan off", async () => {
+  it("is a no-op when plan mode is already off", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
     const ctx = createMockContext();
 
-    const handler = mock.commands.get("plan")!.handler;
-    await handler("", ctx.ctx); // on
-    await handler("off", ctx.ctx);
-
-    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+    await mock.commands.get("plan:exit")!.handler("", ctx.ctx);
+    expect(ctx.notifications.some((n) => n.message.includes("disabled"))).toBe(true);
   });
 });
 
@@ -107,9 +115,8 @@ describe("tool management", () => {
     createExtension(mock.pi);
     const ctx = createMockContext();
 
-    const handler = mock.commands.get("plan")!.handler;
-    await handler("", ctx.ctx); // on
-    await handler("exit", ctx.ctx); // off
+    await mock.commands.get("plan")!.handler("", ctx.ctx); // on
+    await mock.commands.get("plan:exit")!.handler("", ctx.ctx); // off
 
     expect(mock.activeTools).toContain("edit");
     expect(mock.activeTools).toContain("write");
@@ -123,11 +130,9 @@ describe("tool management", () => {
 
     await mock.commands.get("plan")!.handler("", ctx.ctx); // enable
 
-    // Simulate another extension modifying tools between turns
     mock.pi.setActiveTools(["read", "bash", "edit", "write"]);
     expect(mock.activeTools).toContain("edit");
 
-    // before_agent_start should restore plan-mode tools
     await mock.fireEvent(
       "before_agent_start",
       { type: "before_agent_start", systemPrompt: "" },
@@ -164,7 +169,7 @@ describe("tool_call blocking", () => {
     createExtension(mock.pi);
     const ctx = createMockContext();
 
-    await mock.commands.get("plan")!.handler("", ctx.ctx); // enable
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
 
     const result = await mock.fireEvent(
       "tool_call",
@@ -251,11 +256,9 @@ describe("session persistence", () => {
 
     const handler = mock.commands.get("plan")!.handler;
     await handler("", ctx.ctx); // on
-    await handler("exit", ctx.ctx); // off
+    await mock.commands.get("plan:exit")!.handler("", ctx.ctx); // off
 
-    const planEntries = mock.entries.filter(
-      (e) => e.customType === "plan-mode-state",
-    );
+    const planEntries = mock.entries.filter((e) => e.customType === "plan-mode-state");
     expect(planEntries.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -275,11 +278,7 @@ describe("session persistence", () => {
       ],
     });
 
-    await mock.fireEvent(
-      "session_start",
-      { type: "session_start", reason: "resume" },
-      ctx,
-    );
+    await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
 
     expect(ctx.statuses.get("pi-plan")).toBe("plan active");
     expect(mock.activeTools).not.toContain("edit");
@@ -292,11 +291,7 @@ describe("session persistence", () => {
     createExtension(mock.pi);
     const ctx = createMockContext();
 
-    await mock.fireEvent(
-      "session_start",
-      { type: "session_start", reason: "startup" },
-      ctx,
-    );
+    await mock.fireEvent("session_start", { type: "session_start", reason: "startup" }, ctx);
 
     expect(ctx.statuses.get("pi-plan")).toBe("plan active");
     expect(mock.activeTools).not.toContain("edit");
@@ -310,11 +305,7 @@ describe("session persistence", () => {
     await mock.commands.get("plan")!.handler("", ctx.ctx); // enable
     expect(ctx.statuses.get("pi-plan")).toBe("plan active");
 
-    await mock.fireEvent(
-      "session_shutdown",
-      { type: "session_shutdown", reason: "quit" },
-      ctx,
-    );
+    await mock.fireEvent("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
 
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
   });
@@ -354,12 +345,13 @@ describe("before_agent_start", () => {
   });
 
   it("re-applies plan mode tools each turn", async () => {
-    const mock = createMockPi({ activeTools: ["read", "bash", "edit", "write"] });
+    const mock = createMockPi({
+      activeTools: ["read", "bash", "edit", "write"],
+    });
     createExtension(mock.pi);
     const ctx = createMockContext();
     await mock.commands.get("plan")!.handler("", ctx.ctx);
 
-    // Simulate another extension adding a mutating tool
     mock.pi.setActiveTools([...mock.activeTools, "custom-editor"]);
 
     await mock.fireEvent(
@@ -378,7 +370,6 @@ describe("before_agent_start", () => {
     const ctx = createMockContext();
     await mock.commands.get("plan")!.handler("", ctx.ctx);
 
-    // Simulate plan having been detected in a previous turn
     await mock.fireEvent(
       "agent_end",
       {
@@ -394,13 +385,11 @@ describe("before_agent_start", () => {
     );
     expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
 
-    // New turn starts
     await mock.fireEvent(
       "before_agent_start",
       { type: "before_agent_start", systemPrompt: "base" },
       ctx,
     );
-    // Status should revert to "plan active" (plan cleared for new turn)
     expect(ctx.statuses.get("pi-plan")).toBe("plan active");
   });
 });
@@ -441,7 +430,10 @@ describe("agent_end", () => {
       {
         type: "agent_end",
         messages: [
-          { role: "assistant", content: "<proposed_plan>\n# Plan\n</proposed_plan>" },
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
+          },
         ],
       },
       ctx,
@@ -481,7 +473,10 @@ describe("agent_end", () => {
       {
         type: "agent_end",
         messages: [
-          { role: "assistant", content: "<proposed_plan>\n# Plan\n</proposed_plan>" },
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
+          },
         ],
       },
       ctx,
@@ -535,8 +530,6 @@ describe("context handler", () => {
       ctx,
     );
 
-    // No plan-mode-state entries to filter, so result is undefined (original messages kept)
-    // OR if result is returned, the plan block must be intact
     if (result) {
       const msgs = (result as { messages: Array<{ content: string }> }).messages;
       expect(msgs[0].content).toContain("<proposed_plan>");
@@ -587,7 +580,10 @@ describe("widgets", () => {
       {
         type: "agent_end",
         messages: [
-          { role: "assistant", content: "<proposed_plan>\n# Plan\n</proposed_plan>" },
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
+          },
         ],
       },
       ctx,
@@ -605,7 +601,7 @@ describe("widgets", () => {
     await mock.commands.get("plan")!.handler("", ctx.ctx); // on
     expect(ctx.widgets.get("pi-plan")).toBeDefined();
 
-    await mock.commands.get("plan")!.handler("exit", ctx.ctx); // off
+    await mock.commands.get("plan:exit")!.handler("", ctx.ctx); // off
     expect(ctx.widgets.get("pi-plan")).toBeUndefined();
   });
 });
@@ -614,12 +610,13 @@ describe("plan menu actions", () => {
   it("implement: exits plan mode and sends implementation message", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
-    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.implement] });
+    const ctx = createMockContext({
+      selectResponses: [PLAN_MENU_LABELS.implement],
+    });
 
     const handler = mock.commands.get("plan")!.handler;
     await handler("", ctx.ctx); // enter plan mode
 
-    // Simulate plan detection
     await mock.fireEvent(
       "agent_end",
       {
@@ -634,13 +631,9 @@ describe("plan menu actions", () => {
       ctx,
     );
 
-    // Show plan menu and select "implement"
     await handler("", ctx.ctx);
 
-    // Plan mode should be off
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
-
-    // Implementation message should have been sent
     expect(mock.userMessages).toHaveLength(1);
     expect(mock.userMessages[0].content as string).toContain("Implement this proposed plan now");
     expect(mock.userMessages[0].content as string).toContain("# My Plan");
@@ -675,18 +668,22 @@ describe("plan menu actions", () => {
   it("show-plan: notifies with plan content", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
-    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS["show-plan"]] });
+    const ctx = createMockContext({
+      selectResponses: [PLAN_MENU_LABELS["show-plan"]],
+    });
 
     const handler = mock.commands.get("plan")!.handler;
     await handler("", ctx.ctx);
 
-    // Simulate plan detection
     await mock.fireEvent(
       "agent_end",
       {
         type: "agent_end",
         messages: [
-          { role: "assistant", content: "<proposed_plan>\n# My Plan\n</proposed_plan>" },
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# My Plan\n</proposed_plan>",
+          },
         ],
       },
       ctx,
@@ -725,45 +722,6 @@ describe("/plan <prompt>", () => {
     expect(mock.userMessages).toHaveLength(1);
     expect(mock.userMessages[0].content).toBe("Now explore the auth module");
   });
-
-  it("does not submit 'exit' or 'off' as a prompt", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext();
-
-    const handler = mock.commands.get("plan")!.handler;
-    await handler("", ctx.ctx); // enter
-    await handler("exit", ctx.ctx); // should exit, not submit "exit" as prompt
-
-    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
-    expect(mock.userMessages).toHaveLength(0);
-  });
-});
-
-describe("getArgumentCompletions", () => {
-  it("returns completions for matching prefix", () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const completions = mock.commands.get("plan")!.getArgumentCompletions?.("e") as
-      | Array<{ value: string }>
-      | undefined;
-    const values = completions?.map((c) => c.value) ?? [];
-    expect(values).toContain("exit");
-    expect(values).not.toContain("tools");
-    expect(values).not.toContain("off");
-  });
-
-  it("returns all completions for empty prefix", () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const completions = mock.commands.get("plan")!.getArgumentCompletions?.("") as
-      | Array<{ value: string }>
-      | undefined;
-    const values = completions?.map((c) => c.value) ?? [];
-    expect(values).toContain("exit");
-    expect(values).toContain("off");
-    expect(values).toContain("tools");
-  });
 });
 
 describe("agent_end auto-show menu", () => {
@@ -775,7 +733,9 @@ describe("agent_end auto-show menu", () => {
     vi.useFakeTimers();
     const mock = createMockPi();
     createExtension(mock.pi);
-    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.implement] });
+    const ctx = createMockContext({
+      selectResponses: [PLAN_MENU_LABELS.implement],
+    });
 
     const handler = mock.commands.get("plan")!.handler;
     await handler("", ctx.ctx); // enter plan mode
@@ -787,21 +747,17 @@ describe("agent_end auto-show menu", () => {
         messages: [
           {
             role: "assistant",
-            content:
-              "<proposed_plan>\n# Auto Plan\n## Summary\nDo the thing\n</proposed_plan>",
+            content: "<proposed_plan>\n# Auto Plan\n## Summary\nDo the thing\n</proposed_plan>",
           },
         ],
       },
       ctx,
     );
 
-    // Timer hasn't fired yet — plan mode still active
     expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
 
-    // Advance the timer
     await vi.advanceTimersByTimeAsync(0);
 
-    // Menu was shown and "implement" was selected — plan mode exited
     expect(ctx.selectCalls).toHaveLength(1);
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
     expect(mock.userMessages).toHaveLength(1);
@@ -812,7 +768,6 @@ describe("agent_end auto-show menu", () => {
     vi.useFakeTimers();
     const mock = createMockPi();
     createExtension(mock.pi);
-    // First response for the manual /plan menu, second would be for auto-menu (should not fire)
     const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
 
     const handler = mock.commands.get("plan")!.handler;
@@ -832,109 +787,135 @@ describe("agent_end auto-show menu", () => {
       ctx,
     );
 
-    // User manually invokes /plan before timer fires — cancels pending auto-menu
     await handler("", ctx.ctx);
 
-    // Only one select call (from the manual /plan)
     expect(ctx.selectCalls).toHaveLength(1);
 
-    // Advance timer — nothing should happen since it was cleared
     await vi.advanceTimersByTimeAsync(0);
 
-    // Still only one select call
     expect(ctx.selectCalls).toHaveLength(1);
   });
 });
 
-describe("/plan tools", () => {
-  it("opens tool selector and applies selections", async () => {
+describe("/plan:tools command", () => {
+  it("opens tool selector when invoked", async () => {
+    const mock = createMockPi({
+      allTools: [
+        {
+          name: "my-tool",
+          description: "My tool",
+          sourceInfo: { source: "my-ext" },
+        },
+      ],
+    });
+    createExtension(mock.pi);
+    const ctx = createMockContext({ customResult: null });
+
+    await mock.commands.get("plan:tools")!.handler("", ctx.ctx);
+
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+    expect(ctx.customCalls).toHaveLength(1);
+  });
+
+  it("enters plan mode when running /plan:tools while not in plan mode", async () => {
+    const mock = createMockPi({
+      allTools: [
+        {
+          name: "my-tool",
+          description: "My tool",
+          sourceInfo: { source: "my-ext" },
+        },
+      ],
+    });
+    createExtension(mock.pi);
+    const ctx = createMockContext({ customResult: null });
+
+    await mock.commands.get("plan:tools")!.handler("", ctx.ctx);
+
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+    expect(ctx.notifications.some((n) => n.message.includes("enabled"))).toBe(true);
+  });
+
+  it("applies selections when tool selector returns names", async () => {
     const mock = createMockPi({
       activeTools: ["read", "bash", "edit", "write"],
       allTools: [
-        { name: "read", description: "Read files", sourceInfo: { source: "builtin" } },
-        { name: "bash", description: "Run bash", sourceInfo: { source: "builtin" } },
-        { name: "edit", description: "Edit files", sourceInfo: { source: "builtin" } },
-        { name: "write", description: "Write files", sourceInfo: { source: "builtin" } },
-        { name: "my-search", description: "Search tool", sourceInfo: { source: "my-extension" } },
+        {
+          name: "my-search",
+          description: "Search",
+          sourceInfo: { source: "my-ext" },
+        },
       ],
     });
     createExtension(mock.pi);
+    const ctx = createMockContext({ customResult: ["my-search"] });
 
-    // Enter plan mode first
-    const ctx1 = createMockContext();
-    await mock.commands.get("plan")!.handler("", ctx1.ctx);
-
-    // Run /plan tools — toggle my-search on, then Done
-    const ctx2 = createMockContext({
-      selectResponses: [
-        "my-search (my-extension) [disabled]",
-        TOOL_SELECTOR_LABELS.done,
-      ],
-    });
-    await mock.commands.get("plan")!.handler("tools", ctx2.ctx);
+    await mock.commands.get("plan")!.handler("", ctx.ctx); // enter
+    await mock.commands.get("plan:tools")!.handler("", ctx.ctx);
 
     expect(mock.activeTools).toContain("my-search");
     expect(mock.activeTools).toContain("read");
-    expect(mock.activeTools).toContain("bash");
     expect(mock.activeTools).not.toContain("edit");
-    expect(mock.activeTools).not.toContain("write");
   });
 
-  it("enters plan mode when running /plan tools while not in plan mode", async () => {
+  it("notifies no changes when tool selector returns null", async () => {
     const mock = createMockPi({
       allTools: [
-        { name: "my-tool", description: "My tool", sourceInfo: { source: "my-ext" } },
+        {
+          name: "my-tool",
+          description: "My tool",
+          sourceInfo: { source: "my-ext" },
+        },
       ],
     });
     createExtension(mock.pi);
-    const ctx = createMockContext({
-      selectResponses: [TOOL_SELECTOR_LABELS.done],
-    });
+    const ctx = createMockContext({ customResult: null });
 
-    await mock.commands.get("plan")!.handler("tools", ctx.ctx);
+    await mock.commands.get("plan")!.handler("", ctx.ctx); // enter
+    await mock.commands.get("plan:tools")!.handler("", ctx.ctx);
 
-    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+    expect(ctx.notifications.some((n) => n.message.includes("No changes"))).toBe(true);
   });
 
   it("tools action from plan menu calls tool selector", async () => {
     const mock = createMockPi({
       allTools: [
-        { name: "my-tool", description: "My tool", sourceInfo: { source: "my-ext" } },
+        {
+          name: "my-tool",
+          description: "My tool",
+          sourceInfo: { source: "my-ext" },
+        },
       ],
     });
     createExtension(mock.pi);
 
-    // Enter plan mode
     const ctx = createMockContext({
-      selectResponses: [PLAN_MENU_LABELS.tools, TOOL_SELECTOR_LABELS.done],
+      selectResponses: [PLAN_MENU_LABELS.tools],
+      customResult: null,
     });
-    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    await mock.commands.get("plan")!.handler("", ctx.ctx); // enter
+    await mock.commands.get("plan")!.handler("", ctx.ctx); // menu -> tools
 
-    // Run /plan again (shows menu) -> select "Configure tools" -> selector opens -> Done
-    await mock.commands.get("plan")!.handler("", ctx.ctx);
-
-    // Two select calls: one for plan menu, one for tool selector
-    expect(ctx.selectCalls).toHaveLength(2);
+    expect(ctx.selectCalls).toHaveLength(1);
+    expect(ctx.customCalls).toHaveLength(1);
   });
 
   it("preserves selected tools across before_agent_start", async () => {
     const mock = createMockPi({
       activeTools: ["read", "bash", "edit", "write"],
       allTools: [
-        { name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } },
+        {
+          name: "my-search",
+          description: "Search",
+          sourceInfo: { source: "my-ext" },
+        },
       ],
     });
     createExtension(mock.pi);
 
-    // Enter plan mode and configure tools
-    const ctx = createMockContext({
-      selectResponses: [
-        "my-search (my-ext) [disabled]",
-        TOOL_SELECTOR_LABELS.done,
-      ],
-    });
-    await mock.commands.get("plan")!.handler("", ctx.ctx);
-    await mock.commands.get("plan")!.handler("tools", ctx.ctx);
+    const ctx = createMockContext({ customResult: ["my-search"] });
+    await mock.commands.get("plan")!.handler("", ctx.ctx); // enter
+    await mock.commands.get("plan:tools")!.handler("", ctx.ctx); // select my-search
 
     expect(mock.activeTools).toContain("my-search");
 
@@ -956,25 +937,21 @@ describe("/plan tools", () => {
   it("selectedToolNames persists across session restore", async () => {
     const mock = createMockPi({
       allTools: [
-        { name: "my-tool", description: "My tool", sourceInfo: { source: "my-ext" } },
+        {
+          name: "my-tool",
+          description: "My tool",
+          sourceInfo: { source: "my-ext" },
+        },
       ],
     });
     createExtension(mock.pi);
 
-    // Enter plan mode and configure tools
-    const ctx = createMockContext({
-      selectResponses: [
-        "my-tool (my-ext) [disabled]",
-        TOOL_SELECTOR_LABELS.done,
-      ],
-    });
-    await mock.commands.get("plan")!.handler("", ctx.ctx);
-    await mock.commands.get("plan")!.handler("tools", ctx.ctx);
+    const ctx = createMockContext({ customResult: ["my-tool"] });
+    await mock.commands.get("plan")!.handler("", ctx.ctx); // enter
+    await mock.commands.get("plan:tools")!.handler("", ctx.ctx); // select my-tool
 
     // Check persisted state includes selectedToolNames
-    const persistedEntries = mock.entries.filter(
-      (e) => e.customType === "plan-mode-state",
-    );
+    const persistedEntries = mock.entries.filter((e) => e.customType === "plan-mode-state");
     expect(persistedEntries.length).toBeGreaterThan(0);
 
     const lastEntry = persistedEntries[persistedEntries.length - 1];

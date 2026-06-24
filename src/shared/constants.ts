@@ -3,13 +3,7 @@ export const STATUS_KEY = "pi-plan";
 export const WIDGET_KEY = "pi-plan";
 export const TOOL_SELECTOR_PAGE_SIZE = 10;
 
-export const SAFE_BUILTIN_PLAN_TOOLS = new Set([
-  "read",
-  "bash",
-  "grep",
-  "find",
-  "ls",
-]);
+export const SAFE_BUILTIN_PLAN_TOOLS = new Set(["read", "bash", "grep", "find", "ls"]);
 export const BLOCKED_BUILTIN_TOOLS = new Set(["edit", "write"]);
 export const DEFAULT_TOOLS = ["read", "bash", "edit", "write"];
 

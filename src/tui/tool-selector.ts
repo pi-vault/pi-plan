@@ -1,14 +1,14 @@
-import { Key, matchesKey, type Component } from "@earendil-works/pi-tui";
+import { type Component, Key, matchesKey } from "@earendil-works/pi-tui";
+import { renderToolSelector, type ToolSelectorTheme } from "./tool-selector-render.ts";
 import {
+  initToolSelectorState,
   type ToolSelectorItem,
   type ToolSelectorState,
-  initToolSelectorState,
   toolSelectorReducer,
 } from "./tool-selector-state.ts";
-import { renderToolSelector, type ToolSelectorTheme } from "./tool-selector-render.ts";
 
-export type { ToolSelectorItem } from "./tool-selector-state.ts";
 export type { ToolSelectorTheme } from "./tool-selector-render.ts";
+export type { ToolSelectorItem } from "./tool-selector-state.ts";
 
 export function createToolSelectorComponent(options: {
   tools: ToolSelectorItem[];
@@ -17,10 +17,7 @@ export function createToolSelectorComponent(options: {
   done: (result: string[] | null) => void;
   requestRender: () => void;
 }): Component {
-  let state: ToolSelectorState = initToolSelectorState(
-    options.tools,
-    options.previousSelections,
-  );
+  let state: ToolSelectorState = initToolSelectorState(options.tools, options.previousSelections);
 
   function dispatch(action: Parameters<typeof toolSelectorReducer>[1]): void {
     const result = toolSelectorReducer(state, action);
@@ -48,8 +45,7 @@ export function createToolSelectorComponent(options: {
         if (state.query) return void dispatch({ type: "cursor_right" });
         return void dispatch({ type: "next_page" });
       }
-      if (matchesKey(data, Key.backspace))
-        return void dispatch({ type: "backspace" });
+      if (matchesKey(data, Key.backspace)) return void dispatch({ type: "backspace" });
       if (/^[\x20-\x7E]$/.test(data) && !matchesKey(data, Key.space))
         return void dispatch({ type: "type_char", char: data });
     },

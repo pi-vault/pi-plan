@@ -96,6 +96,6 @@ describe("filterPlanModeEntries", () => {
     ];
     const filtered = filterPlanModeEntries(messages, STATE_ENTRY_TYPE);
     expect(filtered).toHaveLength(1);
-    expect((filtered[0].content as string)).toContain("<proposed_plan>");
+    expect(filtered[0].content as string).toContain("<proposed_plan>");
   });
 });

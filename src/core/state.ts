@@ -1,7 +1,4 @@
-import type {
-  CustomEntry,
-  SessionEntry,
-} from "@earendil-works/pi-coding-agent";
+import type { CustomEntry, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { STATE_ENTRY_TYPE } from "../shared/constants.ts";
 import type { PlanModeState } from "../shared/types.ts";
 
@@ -27,9 +24,7 @@ export function exitPlanMode(state: PlanModeState): PlanModeState {
   };
 }
 
-function isPlanStateEntry(
-  entry: SessionEntry,
-): entry is CustomEntry<Partial<PlanModeState>> {
+function isPlanStateEntry(entry: SessionEntry): entry is CustomEntry<Partial<PlanModeState>> {
   return entry.type === "custom" && entry.customType === STATE_ENTRY_TYPE;
 }
 

@@ -1,9 +1,13 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+  extractProposedPlan,
+  filterPlanModeEntries,
+  getAssistantMessageText,
+} from "./core/context.ts";
 import { buildPlanModePrompt } from "./core/prompt.ts";
 import { isSafeCommand } from "./core/safety.ts";
 import { createInitialState, enterPlanMode, exitPlanMode, restoreState } from "./core/state.ts";
 import { normalModeToolNames, planModeToolNamesWithSelections } from "./core/tools.ts";
-import { extractProposedPlan, filterPlanModeEntries, getAssistantMessageText } from "./core/context.ts";
 import {
   BLOCKED_BUILTIN_TOOLS,
   STATE_ENTRY_TYPE,
@@ -11,9 +15,10 @@ import {
   WIDGET_KEY,
 } from "./shared/constants.ts";
 import type { PlanModeState } from "./shared/types.ts";
+import { type PlanMenuAction, showPlanMenu, showPlanReadyMenu } from "./tui/menus.ts";
 import { formatStatus } from "./tui/status.ts";
+import { createToolSelectorComponent, type ToolSelectorItem } from "./tui/tool-selector.ts";
 import { formatWidgetLines } from "./tui/widgets.ts";
-import { showPlanMenu, showPlanReadyMenu, showToolSelector, type PlanMenuAction } from "./tui/menus.ts";
 
 export default function createExtension(pi: ExtensionAPI): void {
   let state: PlanModeState = createInitialState();
@@ -79,9 +84,25 @@ export default function createExtension(pi: ExtensionAPI): void {
   }
 
   async function runToolSelector(ctx: ExtensionContext): Promise<void> {
-    const allTools = pi.getAllTools();
-    const selections = await showToolSelector(ctx, allTools, state);
-    if (selections === undefined) {
+    const allTools = pi.getAllTools() as ToolSelectorItem[];
+    const selections = await ctx.ui.custom<string[] | null>((_tui, theme, _keybindings, done) => {
+      let requestRender: () => void = () => {};
+      const component = createToolSelectorComponent({
+        tools: allTools,
+        previousSelections: state.selectedToolNames ?? undefined,
+        theme: {
+          fg: (color: string, text: string) => theme.fg(color as never, text),
+          bold: (text: string) => theme.bold(text),
+          dim: (text: string) => theme.fg("dim" as never, text),
+        },
+        done,
+        requestRender: () => requestRender(),
+      });
+      requestRender = () => component.invalidate();
+      return component;
+    });
+
+    if (selections === null) {
       ctx.ui.notify("No changes to Plan-mode tools.", "info");
       return;
     }
@@ -132,25 +153,8 @@ export default function createExtension(pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       clearPendingMenu();
       const command = args.trim();
-      const lower = command.toLowerCase();
-
-      if (lower === "exit" || lower === "off") {
-        if (state.enabled) doExit(ctx);
-        ctx.ui.notify("Plan mode disabled.", "info");
-        return;
-      }
-
-      if (lower === "tools") {
-        if (!state.enabled) {
-          doEnter(ctx);
-          ctx.ui.notify("Plan mode enabled. Write tools disabled.", "info");
-        }
-        await runToolSelector(ctx);
-        return;
-      }
 
       if (command) {
-        // /plan <prompt> -- enter if needed then submit the prompt
         if (!state.enabled) {
           doEnter(ctx);
           ctx.ui.notify("Plan mode enabled. Write tools disabled.", "info");
@@ -159,24 +163,35 @@ export default function createExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      // No args
       if (!state.enabled) {
         doEnter(ctx);
         ctx.ui.notify("Plan mode enabled. Write tools disabled.", "info");
         return;
       }
 
-      // In plan mode with no args -- show menu
       const action = await showPlanMenu(ctx, state);
       await handleMenuAction(action, ctx);
     },
-    getArgumentCompletions: (prefix: string) => {
-      const items = [
-        { value: "exit", label: "exit", description: "Exit plan mode" },
-        { value: "off", label: "off", description: "Exit plan mode" },
-        { value: "tools", label: "tools", description: "Configure plan mode tools" },
-      ];
-      return items.filter((c) => c.value.startsWith(prefix.toLowerCase()));
+  });
+
+  pi.registerCommand("plan:exit", {
+    description: "Exit plan mode",
+    handler: async (_args, ctx) => {
+      clearPendingMenu();
+      if (state.enabled) doExit(ctx);
+      ctx.ui.notify("Plan mode disabled.", "info");
+    },
+  });
+
+  pi.registerCommand("plan:tools", {
+    description: "Configure plan mode tools",
+    handler: async (_args, ctx) => {
+      clearPendingMenu();
+      if (!state.enabled) {
+        doEnter(ctx);
+        ctx.ui.notify("Plan mode enabled. Write tools disabled.", "info");
+      }
+      await runToolSelector(ctx);
     },
   });
 
@@ -186,7 +201,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     if (BLOCKED_BUILTIN_TOOLS.has(event.toolName)) {
       return {
         block: true,
-        reason: `Plan mode blocks '${event.toolName}'. Exit plan mode first with /plan exit.`,
+        reason: `Plan mode blocks '${event.toolName}'. Exit plan mode first with /plan:exit.`,
       };
     }
 
@@ -207,7 +222,9 @@ export default function createExtension(pi: ExtensionAPI): void {
     pi.setActiveTools(planModeToolNamesWithSelections(state.selectedToolNames));
     state = { ...state, latestPlan: undefined, awaitingAction: false };
     updateUi(ctx);
-    return { systemPrompt: `${event.systemPrompt}\n\n${buildPlanModePrompt()}` };
+    return {
+      systemPrompt: `${event.systemPrompt}\n\n${buildPlanModePrompt()}`,
+    };
   });
 
   pi.on("agent_end", async (event, ctx) => {
@@ -221,7 +238,6 @@ export default function createExtension(pi: ExtensionAPI): void {
     state = { ...state, latestPlan: plan, awaitingAction: true };
     persist();
     updateUi(ctx);
-    // Auto-show plan-ready menu after current event loop tick
     clearPendingMenu();
     pendingMenuTimer = setTimeout(
       () =>
