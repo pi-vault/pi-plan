@@ -41,19 +41,20 @@ describe("/plan command", () => {
     );
   });
 
-  it("toggles plan mode off", async () => {
+  it("shows plan menu when /plan is run in plan mode", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
-    const ctx = createMockContext();
+    const ctx = createMockContext({ selectResponses: ["Stay in Plan mode"] });
 
     const handler = mock.commands.get("plan")!.handler;
     await handler("", ctx.ctx); // on
-    await handler("", ctx.ctx); // off
 
-    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
-    expect(ctx.notifications.some((n) => n.message.includes("disabled"))).toBe(
-      true,
-    );
+    // Second /plan shows menu, not toggle
+    await handler("", ctx.ctx);
+
+    // Plan mode is still on (we chose "stay")
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+    expect(ctx.selectCalls).toHaveLength(1);
   });
 
   it("exits plan mode with /plan exit", async () => {
@@ -107,7 +108,7 @@ describe("tool management", () => {
 
     const handler = mock.commands.get("plan")!.handler;
     await handler("", ctx.ctx); // on
-    await handler("", ctx.ctx); // off
+    await handler("exit", ctx.ctx); // off
 
     expect(mock.activeTools).toContain("edit");
     expect(mock.activeTools).toContain("write");
@@ -249,7 +250,7 @@ describe("session persistence", () => {
 
     const handler = mock.commands.get("plan")!.handler;
     await handler("", ctx.ctx); // on
-    await handler("", ctx.ctx); // off
+    await handler("exit", ctx.ctx); // off
 
     const planEntries = mock.entries.filter(
       (e) => e.customType === "plan-mode-state",
@@ -603,7 +604,7 @@ describe("widgets", () => {
     await mock.commands.get("plan")!.handler("", ctx.ctx); // on
     expect(ctx.widgets.get("pi-plan")).toBeDefined();
 
-    await mock.commands.get("plan")!.handler("", ctx.ctx); // off
+    await mock.commands.get("plan")!.handler("exit", ctx.ctx); // off
     expect(ctx.widgets.get("pi-plan")).toBeUndefined();
   });
 });
