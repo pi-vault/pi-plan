@@ -48,6 +48,7 @@ export interface MockContext {
   notifications: Array<{ message: string; type?: string }>;
   widgets: Map<string, unknown>;
   selectCalls: Array<{ title: string; options: string[] }>;
+  customCalls: Array<{ result: unknown }>;
 }
 
 export function createMockPi(options?: {
@@ -130,11 +131,13 @@ export function createMockContext(options?: {
   hasUI?: boolean;
   isIdle?: boolean;
   selectResponses?: string[];
+  customResult?: unknown;
 }): MockContext {
   const statuses = new Map<string, string | undefined>();
   const notifications: Array<{ message: string; type?: string }> = [];
   const widgets = new Map<string, unknown>();
   const selectCalls: Array<{ title: string; options: string[] }> = [];
+  const customCalls: Array<{ result: unknown }> = [];
   const selectQueue = [...(options?.selectResponses ?? [])];
   const sessionEntries: SessionEntry[] = options?.entries ?? [];
 
@@ -154,12 +157,26 @@ export function createMockContext(options?: {
             widgets.set(key, content);
           }
         },
-        async select(title: string, options: string[]) {
-          selectCalls.push({ title, options });
+        async select(title: string, opts: string[]) {
+          selectCalls.push({ title, options: opts });
           return selectQueue.shift();
+        },
+        async custom(factory: Function) {
+          const result = options?.customResult ?? null;
+          customCalls.push({ result });
+          const noopTheme = {
+            fg: (_color: string, text: string) => text,
+            bold: (text: string) => text,
+          };
+          const done = (_r: unknown) => {};
+          factory({}, noopTheme, {}, done);
+          return result;
         },
         theme: {
           fg(_color: string, text: string) {
+            return text;
+          },
+          bold(text: string) {
             return text;
           },
         },
@@ -174,6 +191,7 @@ export function createMockContext(options?: {
     notifications,
     widgets,
     selectCalls,
+    customCalls,
   };
 
   return mockCtx;
