@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import createExtension from "../src/index.ts";
 import { createMockContext, createMockPi } from "./helpers.ts";
+import { PLAN_MENU_LABELS } from "../src/tui/menus.ts";
 
 describe("createExtension", () => {
   it("registers the plan flag", () => {
@@ -606,5 +607,161 @@ describe("widgets", () => {
 
     await mock.commands.get("plan")!.handler("exit", ctx.ctx); // off
     expect(ctx.widgets.get("pi-plan")).toBeUndefined();
+  });
+});
+
+describe("plan menu actions", () => {
+  it("implement: exits plan mode and sends implementation message", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.implement] });
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("", ctx.ctx); // enter plan mode
+
+    // Simulate plan detection
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# My Plan\n## Summary\nBuild the thing\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
+
+    // Show plan menu and select "implement"
+    await handler("", ctx.ctx);
+
+    // Plan mode should be off
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+
+    // Implementation message should have been sent
+    expect(mock.userMessages).toHaveLength(1);
+    expect(mock.userMessages[0].content as string).toContain("Implement this proposed plan now");
+    expect(mock.userMessages[0].content as string).toContain("# My Plan");
+  });
+
+  it("exit: exits plan mode without sending message", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.exit] });
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("", ctx.ctx); // enter plan mode
+    await handler("", ctx.ctx); // show menu, select exit
+
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+    expect(mock.userMessages).toHaveLength(0);
+  });
+
+  it("stay: keeps plan mode active", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("", ctx.ctx);
+    await handler("", ctx.ctx);
+
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+    expect(mock.userMessages).toHaveLength(0);
+  });
+
+  it("show-plan: notifies with plan content", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS["show-plan"]] });
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("", ctx.ctx);
+
+    // Simulate plan detection
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          { role: "assistant", content: "<proposed_plan>\n# My Plan\n</proposed_plan>" },
+        ],
+      },
+      ctx,
+    );
+
+    await handler("", ctx.ctx);
+
+    expect(ctx.notifications.some((n) => n.message.includes("# My Plan"))).toBe(true);
+  });
+});
+
+describe("/plan <prompt>", () => {
+  it("enters plan mode and sends the prompt as a user message", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("Add dark mode support", ctx.ctx);
+
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+    expect(mock.userMessages).toHaveLength(1);
+    expect(mock.userMessages[0].content).toBe("Add dark mode support");
+  });
+
+  it("stays in plan mode and sends prompt if already in plan mode", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("", ctx.ctx); // enter
+    await handler("Now explore the auth module", ctx.ctx);
+
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+    expect(mock.userMessages).toHaveLength(1);
+    expect(mock.userMessages[0].content).toBe("Now explore the auth module");
+  });
+
+  it("does not submit 'exit' or 'off' as a prompt", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("", ctx.ctx); // enter
+    await handler("exit", ctx.ctx); // should exit, not submit "exit" as prompt
+
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+    expect(mock.userMessages).toHaveLength(0);
+  });
+});
+
+describe("getArgumentCompletions", () => {
+  it("returns completions for matching prefix", () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const completions = mock.commands.get("plan")!.getArgumentCompletions?.("e") as
+      | Array<{ value: string }>
+      | undefined;
+    const values = completions?.map((c) => c.value) ?? [];
+    expect(values).toContain("exit");
+    expect(values).not.toContain("tools");
+    expect(values).not.toContain("off");
+  });
+
+  it("returns all completions for empty prefix", () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const completions = mock.commands.get("plan")!.getArgumentCompletions?.("") as
+      | Array<{ value: string }>
+      | undefined;
+    const values = completions?.map((c) => c.value) ?? [];
+    expect(values).toContain("exit");
+    expect(values).toContain("off");
+    expect(values).toContain("tools");
   });
 });
