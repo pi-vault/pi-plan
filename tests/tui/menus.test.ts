@@ -187,6 +187,23 @@ describe("showToolSelector", () => {
     expect(options.some((o) => o.includes("read") && o.includes("[always on]"))).toBe(true);
   });
 
+  it("does not toggle safe builtin tools when clicked", async () => {
+    const tools = [
+      { name: "read", description: "Read files", sourceInfo: { source: "builtin" } },
+      { name: "my-tool", description: "My tool", sourceInfo: { source: "extension" } },
+    ];
+    const state = { ...createInitialState(), enabled: true };
+    const ctx = createMockContext({
+      selectResponses: [
+        "read (built-in) [always on]",
+        TOOL_SELECTOR_LABELS.done,
+      ],
+    });
+
+    const result = await showToolSelector(ctx.ctx, tools, state);
+    expect(result).toBeUndefined();
+  });
+
   it("returns undefined for empty tool list", async () => {
     const state = { ...createInitialState(), enabled: true };
     const ctx = createMockContext({ selectResponses: [] });
