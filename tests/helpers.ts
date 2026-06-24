@@ -22,6 +22,12 @@ type EventHandler = (
   ctx: ExtensionContext,
 ) => Promise<unknown> | unknown;
 
+export interface ToolInfoLike {
+  name: string;
+  description?: string;
+  sourceInfo: { source: string };
+}
+
 export interface MockPi {
   pi: ExtensionAPI;
   flags: Map<string, RegisteredFlag>;
@@ -29,6 +35,7 @@ export interface MockPi {
   commands: Map<string, RegisteredCommand>;
   events: Map<string, EventHandler[]>;
   activeTools: string[];
+  allTools: ToolInfoLike[];
   entries: Array<{ customType: string; data: unknown }>;
   messages: Array<{ message: unknown; options: unknown }>;
   userMessages: Array<{ content: unknown; options: unknown }>;
@@ -43,12 +50,16 @@ export interface MockContext {
   selectCalls: Array<{ title: string; options: string[] }>;
 }
 
-export function createMockPi(options?: { activeTools?: string[] }): MockPi {
+export function createMockPi(options?: {
+  activeTools?: string[];
+  allTools?: ToolInfoLike[];
+}): MockPi {
   const flags = new Map<string, RegisteredFlag>();
   const flagValues = new Map<string, boolean | string>();
   const commands = new Map<string, RegisteredCommand>();
   const events = new Map<string, EventHandler[]>();
   let activeTools = options?.activeTools ?? ["read", "bash", "edit", "write"];
+  const allTools: ToolInfoLike[] = options?.allTools ?? [];
   const entries: Array<{ customType: string; data: unknown }> = [];
   const messages: Array<{ message: unknown; options: unknown }> = [];
   const userMessages: Array<{ content: unknown; options: unknown }> = [];
@@ -88,12 +99,16 @@ export function createMockPi(options?: { activeTools?: string[] }): MockPi {
       sendUserMessage(content: unknown, opts: unknown) {
         userMessages.push({ content, options: opts });
       },
+      getAllTools() {
+        return [...allTools];
+      },
     } as unknown as ExtensionAPI,
     flags,
     flagValues,
     commands,
     events,
     activeTools,
+    allTools,
     entries,
     messages,
     userMessages,

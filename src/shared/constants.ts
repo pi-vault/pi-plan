@@ -1,6 +1,7 @@
 export const STATE_ENTRY_TYPE = "plan-mode-state";
 export const STATUS_KEY = "pi-plan";
 export const WIDGET_KEY = "pi-plan";
+export const TOOL_SELECTOR_PAGE_SIZE = 10;
 
 export const SAFE_BUILTIN_PLAN_TOOLS = new Set([
   "read",
