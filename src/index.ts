@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   extractProposedPlan,
-  filterPlanModeEntries,
+  filterPlanModeMessages,
   getAssistantMessageText,
 } from "./core/context.ts";
 import { buildPlanModePrompt } from "./core/prompt.ts";
@@ -15,6 +15,7 @@ import {
 } from "./core/tools.ts";
 import {
   BLOCKED_BUILTIN_TOOLS,
+  PROPOSED_PLAN_MESSAGE_TYPE,
   STATE_ENTRY_TYPE,
   STATUS_KEY,
   WIDGET_KEY,
@@ -243,6 +244,14 @@ export default function createExtension(pi: ExtensionAPI): void {
     state = { ...state, latestPlan: plan, awaitingAction: true };
     persist();
     updateUi(ctx);
+    pi.sendMessage(
+      {
+        customType: PROPOSED_PLAN_MESSAGE_TYPE,
+        content: `**Proposed Plan**\n\n${plan}`,
+        display: true,
+      },
+      { triggerTurn: false },
+    );
     clearPendingMenu();
     pendingMenuTimer = setTimeout(
       () =>
@@ -255,7 +264,8 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   pi.on("context", async (event) => {
     const messages = (event.messages as unknown as Array<Record<string, unknown>>) ?? [];
-    const filtered = filterPlanModeEntries(messages, STATE_ENTRY_TYPE);
+    const planMessageType = state.enabled ? undefined : PROPOSED_PLAN_MESSAGE_TYPE;
+    const filtered = filterPlanModeMessages(messages, STATE_ENTRY_TYPE, planMessageType);
     if (filtered.length !== messages.length) {
       return { messages: filtered as unknown as typeof event.messages };
     }

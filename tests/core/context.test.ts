@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   extractProposedPlan,
   filterPlanModeEntries,
+  filterPlanModeMessages,
   getAssistantMessageText,
 } from "../../src/core/context.ts";
-import { STATE_ENTRY_TYPE } from "../../src/shared/constants.ts";
+import {
+  PROPOSED_PLAN_MESSAGE_TYPE,
+  STATE_ENTRY_TYPE,
+} from "../../src/shared/constants.ts";
 
 describe("extractProposedPlan", () => {
   it("extracts plan content from tags", () => {
@@ -97,5 +101,55 @@ describe("filterPlanModeEntries", () => {
     const filtered = filterPlanModeEntries(messages, STATE_ENTRY_TYPE);
     expect(filtered).toHaveLength(1);
     expect(filtered[0].content as string).toContain("<proposed_plan>");
+  });
+});
+
+describe("filterPlanModeMessages", () => {
+  it("removes both state entries and proposed-plan messages", () => {
+    const messages = [
+      { role: "user", content: "hello" },
+      { customType: STATE_ENTRY_TYPE, data: { enabled: true } },
+      {
+        customType: PROPOSED_PLAN_MESSAGE_TYPE,
+        content: "plan text",
+        display: true,
+      },
+      { role: "assistant", content: "world" },
+    ];
+    const filtered = filterPlanModeMessages(
+      messages,
+      STATE_ENTRY_TYPE,
+      PROPOSED_PLAN_MESSAGE_TYPE,
+    );
+    expect(filtered).toHaveLength(2);
+    expect(filtered[0]).toEqual({ role: "user", content: "hello" });
+    expect(filtered[1]).toEqual({ role: "assistant", content: "world" });
+  });
+
+  it("keeps proposed-plan messages when planMessageType is undefined", () => {
+    const messages = [
+      {
+        customType: PROPOSED_PLAN_MESSAGE_TYPE,
+        content: "plan",
+        display: true,
+      },
+      { role: "assistant", content: "world" },
+    ];
+    const filtered = filterPlanModeMessages(
+      messages,
+      STATE_ENTRY_TYPE,
+      undefined,
+    );
+    expect(filtered).toHaveLength(2);
+  });
+
+  it("always filters state entries regardless of planMessageType", () => {
+    const messages = [
+      { customType: STATE_ENTRY_TYPE, data: { enabled: true } },
+      { role: "user", content: "hello" },
+    ];
+    const filtered = filterPlanModeMessages(messages, STATE_ENTRY_TYPE, undefined);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]).toEqual({ role: "user", content: "hello" });
   });
 });

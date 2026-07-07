@@ -442,6 +442,36 @@ describe("agent_end", () => {
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
   });
 
+  it("sends a display-only proposed-plan message when plan is detected", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            content:
+              "<proposed_plan>\n# The Plan\n## Summary\nDo it\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
+
+    const planMessage = mock.messages.find(
+      (m) => (m.message as any).customType === "proposed-plan",
+    );
+    expect(planMessage).toBeDefined();
+    expect((planMessage!.message as any).display).toBe(true);
+    expect((planMessage!.message as any).content).toContain("# The Plan");
+    expect(planMessage!.options).toEqual({ triggerTurn: false });
+  });
+
   it("does nothing when no proposed plan in messages", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
@@ -534,6 +564,51 @@ describe("context handler", () => {
       const msgs = (result as { messages: Array<{ content: string }> }).messages;
       expect(msgs[0].content).toContain("<proposed_plan>");
     }
+  });
+
+  it("filters proposed-plan messages when plan mode is off", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+
+    const result = await mock.fireEvent(
+      "context",
+      {
+        type: "context",
+        messages: [
+          { role: "user", content: "hello" },
+          { customType: "proposed-plan", content: "old plan", display: true },
+          { role: "assistant", content: "world" },
+        ],
+      },
+      ctx,
+    );
+
+    expect(result).toBeDefined();
+    const { messages } = result as { messages: unknown[] };
+    expect(messages).toHaveLength(2);
+  });
+
+  it("keeps proposed-plan messages when plan mode is on", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    const result = await mock.fireEvent(
+      "context",
+      {
+        type: "context",
+        messages: [
+          { customType: "proposed-plan", content: "current plan", display: true },
+          { role: "assistant", content: "world" },
+        ],
+      },
+      ctx,
+    );
+
+    // No filtering needed — both messages stay
+    expect(result).toBeUndefined();
   });
 
   it("returns undefined when nothing to filter", async () => {

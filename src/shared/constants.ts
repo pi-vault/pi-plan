@@ -7,6 +7,8 @@ export const SAFE_BUILTIN_PLAN_TOOLS = new Set(["read", "bash", "grep", "find", 
 export const BLOCKED_BUILTIN_TOOLS = new Set(["edit", "write"]);
 export const DEFAULT_TOOLS = ["read", "bash", "edit", "write"];
 
+export const PROPOSED_PLAN_MESSAGE_TYPE = "proposed-plan";
+
 export const MUTATING_BASH_PATTERNS: RegExp[] = [
   /\brm\b/i,
   /\brmdir\b/i,

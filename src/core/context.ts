@@ -27,3 +27,15 @@ export function filterPlanModeEntries(
 ): Array<Record<string, unknown>> {
   return messages.filter((msg) => msg.customType !== entryType);
 }
+
+export function filterPlanModeMessages(
+  messages: Array<Record<string, unknown>>,
+  stateEntryType: string,
+  planMessageType: string | undefined,
+): Array<Record<string, unknown>> {
+  return messages.filter((msg) => {
+    if (msg.customType === stateEntryType) return false;
+    if (planMessageType && msg.customType === planMessageType) return false;
+    return true;
+  });
+}
