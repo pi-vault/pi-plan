@@ -263,7 +263,7 @@ pi.on("context", async (event) => {
   const processed = state.enabled
     ? filtered
     : stripProposedPlanBlocksFromMessages(filtered);
-  if (processed !== messages || processed.length !== messages.length) {
+  if (filtered.length !== messages.length || processed !== filtered) {
     return { messages: processed as unknown as typeof event.messages };
   }
 });
