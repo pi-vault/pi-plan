@@ -2,13 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Persist tool selections to a JSON file at `$PI_CODING_AGENT_DIR/extensions/plan-tools.json` so they survive Pi relaunches.
+**Goal:** Persist tool selections to a JSON file at `<agentDir>/extensions/plan-tools.json` so they survive Pi relaunches.
 
-**Architecture:** New `src/core/config.ts` module for file I/O, converter functions in `src/core/tools.ts`, wired into session_start and tool selector in `src/index.ts`.
+**Architecture:** New `src/core/config.ts` module for file I/O using Pi's `getAgentDir()` utility, converter functions in `src/core/tools.ts`, wired into session_start and tool selector in `src/index.ts`.
 
-**Tech Stack:** TypeScript, Node.js `node:fs/promises`, vitest
+**Tech Stack:** TypeScript, Node.js `node:fs/promises`, `getAgentDir` from `@earendil-works/pi-coding-agent`, vitest
 
 **Prerequisite:** Phases 1-4 completed (safe wrappers available for `safeGetAllTools`).
+
+**Key design decision:** Use the SDK-exported `getAgentDir()` (not raw `process.env.PI_CODING_AGENT_DIR`) to resolve the config path. This matches the canonical pattern used by Pi's sandbox and preset extensions, handles tilde expansion, and provides a working fallback (`~/.pi/agent`) when the env var is unset.
 
 ---
 
@@ -52,21 +54,17 @@ describe("getConfigFilePath", () => {
     }
   });
 
-  it("returns path under PI_CODING_AGENT_DIR", () => {
+  it("returns path under PI_CODING_AGENT_DIR when set", () => {
     process.env.PI_CODING_AGENT_DIR = "/home/user/.config/pi";
     expect(getConfigFilePath()).toBe(
       "/home/user/.config/pi/extensions/plan-tools.json",
     );
   });
 
-  it("returns undefined when env var is unset", () => {
+  it("returns a default path when env var is unset", () => {
     delete process.env.PI_CODING_AGENT_DIR;
-    expect(getConfigFilePath()).toBeUndefined();
-  });
-
-  it("returns undefined when env var is empty", () => {
-    process.env.PI_CODING_AGENT_DIR = "";
-    expect(getConfigFilePath()).toBeUndefined();
+    const result = getConfigFilePath();
+    expect(result).toMatch(/extensions\/plan-tools\.json$/);
   });
 });
 
@@ -111,11 +109,6 @@ describe("readToolConfig", () => {
 
     expect(await readToolConfig()).toBeUndefined();
   });
-
-  it("returns undefined when env var is unset", async () => {
-    delete process.env.PI_CODING_AGENT_DIR;
-    expect(await readToolConfig()).toBeUndefined();
-  });
 });
 
 describe("writeToolConfig", () => {
@@ -152,12 +145,6 @@ describe("writeToolConfig", () => {
     const dir = join(tempDir, "extensions");
     expect(existsSync(dir)).toBe(true);
   });
-
-  it("does nothing when env var is unset", async () => {
-    delete process.env.PI_CODING_AGENT_DIR;
-    await writeToolConfig({ read: true });
-    // No throw, no file created
-  });
 });
 ```
 
@@ -173,20 +160,18 @@ Create `src/core/config.ts`:
 ```ts
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 const CONFIG_FILENAME = "extensions/plan-tools.json";
 
-export function getConfigFilePath(): string | undefined {
-  const dir = process.env.PI_CODING_AGENT_DIR;
-  if (!dir) return undefined;
-  return join(dir, CONFIG_FILENAME);
+export function getConfigFilePath(): string {
+  return join(getAgentDir(), CONFIG_FILENAME);
 }
 
 export async function readToolConfig(): Promise<
   Record<string, boolean> | undefined
 > {
   const filePath = getConfigFilePath();
-  if (!filePath) return undefined;
 
   try {
     const content = await readFile(filePath, "utf-8");
@@ -208,13 +193,12 @@ export async function writeToolConfig(
   config: Record<string, boolean>,
 ): Promise<void> {
   const filePath = getConfigFilePath();
-  if (!filePath) return;
 
   try {
     await mkdir(dirname(filePath), { recursive: true });
     await writeFile(filePath, JSON.stringify(config, null, 2), "utf-8");
   } catch {
-    // Silently fail — caller should notify user
+    // Silently fail — non-critical persistence
   }
 }
 ```
@@ -312,11 +296,9 @@ Expected: FAIL — `toolConfigToSelectedNames` and `selectedNamesToToolConfig` n
 
 - [ ] **Step 3: Implement converters**
 
-Add to `src/core/tools.ts` (after the safe wrapper functions):
+Add to `src/core/tools.ts` (after the safe wrapper functions). Note: `ToolSelectorItem` is already imported at line 3.
 
 ```ts
-import type { ToolSelectorItem } from "../tui/tool-selector-state.ts";
-
 export function toolConfigToSelectedNames(
   config: Record<string, boolean>,
 ): string[] {
@@ -342,8 +324,6 @@ export function selectedNamesToToolConfig(
 }
 ```
 
-Note: The import of `ToolSelectorItem` from `../tui/tool-selector-state.ts` may already exist from Phase 1 (for `safeGetAllTools`). If so, just ensure it's present.
-
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm test -- tests/core/tools.test.ts`
@@ -358,15 +338,25 @@ Expected: PASS
 
 - [ ] **Step 1: Write the failing test for config loading on session_start**
 
-Add to the `session persistence` describe block in `tests/index.test.ts`:
+Add to the `session persistence` describe block in `tests/index.test.ts`.
+
+Note: Tests still manipulate `process.env.PI_CODING_AGENT_DIR` because that's what `getAgentDir()` checks internally. Use top-level imports (no inline `await import()`).
 
 ```ts
-it("loads tool selections from config file on session_start", async () => {
-  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } =
-    await import("node:fs");
-  const { join } = await import("node:path");
-  const { tmpdir } = await import("node:os");
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
+// ... inside the "session persistence" describe block:
+
+it("loads tool selections from config file on session_start", async () => {
   const tempDir = mkdtempSync(join(tmpdir(), "pi-plan-config-"));
   const configDir = join(tempDir, "extensions");
   mkdirSync(configDir, { recursive: true });
@@ -400,12 +390,15 @@ it("loads tool selections from config file on session_start", async () => {
       ctx,
     );
 
-    // Should include custom_tool from config
     expect(mock.activeTools).toContain("custom_tool");
     expect(mock.activeTools).toContain("read");
     expect(mock.activeTools).not.toContain("edit");
   } finally {
-    process.env.PI_CODING_AGENT_DIR = originalEnv;
+    if (originalEnv !== undefined) {
+      process.env.PI_CODING_AGENT_DIR = originalEnv;
+    } else {
+      delete process.env.PI_CODING_AGENT_DIR;
+    }
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
@@ -418,10 +411,15 @@ Expected: FAIL — config file not loaded
 
 - [ ] **Step 3: Wire config loading into session_start**
 
-In `src/index.ts`, add imports:
+In `src/index.ts`, add import for config:
 
 ```ts
 import { readToolConfig, writeToolConfig } from "./core/config.ts";
+```
+
+And add the new converter imports alongside the existing tools import:
+
+```ts
 import {
   normalModeToolNames,
   planModeToolNamesWithSelections,
