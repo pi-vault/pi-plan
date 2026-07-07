@@ -7,9 +7,6 @@ import {
   toolSelectorReducer,
 } from "./tool-selector-state.ts";
 
-export type { ToolSelectorTheme } from "./tool-selector-render.ts";
-export type { ToolSelectorItem } from "./tool-selector-state.ts";
-
 export function createToolSelectorComponent(options: {
   tools: ToolSelectorItem[];
   previousSelections: string[] | undefined;

@@ -4,8 +4,6 @@ import {
   TOOL_SELECTOR_PAGE_SIZE,
 } from "../shared/constants.ts";
 
-export { TOOL_SELECTOR_PAGE_SIZE };
-
 export interface ToolSelectorItem {
   name: string;
   sourceInfo: { source: string };

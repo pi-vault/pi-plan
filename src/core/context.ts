@@ -21,13 +21,6 @@ export function getAssistantMessageText(message: Record<string, unknown>): strin
     .join("\n");
 }
 
-export function filterPlanModeEntries(
-  messages: Array<Record<string, unknown>>,
-  entryType: string,
-): Array<Record<string, unknown>> {
-  return messages.filter((msg) => msg.customType !== entryType);
-}
-
 const PROPOSED_PLAN_BLOCK_PATTERN =
   /<proposed_plan>[\s\S]*?<\/proposed_plan>/gi;
 
