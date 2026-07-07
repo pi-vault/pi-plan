@@ -7,7 +7,7 @@
 
 ## Description
 
-`@pi-vault/pi-plan` adds a read-only plan mode to Pi so you can explore a codebase, clarify the request, and get a decision-complete implementation plan before any code changes happen.
+Plan first, change code second. `@pi-vault/pi-plan` adds a read-only planning workflow to Pi so the agent can inspect the repo, clarify the request, and return a decision-complete implementation plan before any write-capable work starts.
 
 ## Screenshots
 
@@ -15,7 +15,9 @@
 ![Plan mode menu opened from /plan with Configure tools, Stay in Plan mode, and Exit Plan mode options](docs/assets/plan-mode-menu-ui.png)
 ![Plan-mode tool selector showing built-in tools with policy labels and optional extension tools flagged as user risk](docs/assets/plan-mode-tools-ui.png)
 
-## Install
+## Install, Upgrade, And Reload
+
+Install or upgrade the extension:
 
 ```bash
 pi install npm:@pi-vault/pi-plan
@@ -41,13 +43,13 @@ Start plan mode and send the planning prompt immediately:
 /plan prepare the next release notes and docs
 ```
 
-Configure additional optional tools that are available during plan mode:
+Open the optional tool selector for plan mode:
 
 ```text
 /plan:tools
 ```
 
-Exit plan mode and restore full tool access:
+Exit plan mode and restore normal tool access:
 
 ```text
 /plan:exit
@@ -59,16 +61,27 @@ Start Pi directly in plan mode:
 pi --plan
 ```
 
-## What Plan Mode Does
+## How Plan Mode Works
 
-When plan mode is active, the agent stays in exploration and planning mode until you explicitly exit or choose to implement the proposed plan.
+When plan mode is active, the agent stays in an explore-first workflow until you explicitly exit or choose to implement the latest proposed plan.
 
-Plan mode is designed for work that benefits from an explore-first workflow:
+A typical flow looks like this:
 
-- inspect the repo before changing anything
-- clarify requirements and tradeoffs
-- produce a single decision-complete `<proposed_plan>` block
-- hand the approved plan back into normal execution when you are ready
+1. Enter plan mode with `/plan` or `pi --plan`.
+2. Let the agent inspect the repo and ask clarifying questions.
+3. Receive exactly one `<proposed_plan>` block when the plan is ready.
+4. Choose whether to implement it, stay in plan mode, or exit.
+
+If you choose **Implement this plan**, pi-plan turns plan mode off first, restores full tool access, and sends the saved plan back into the conversation as the next implementation instruction.
+
+## What’s New In Current Behavior
+
+The current release behavior includes a few workflow improvements beyond the original 0.2.0 command surface:
+
+- Optional plan-mode tool selections persist across Pi sessions.
+- The latest proposed plan is shown in the session timeline as a display-only message.
+- On implement and exit paths, the extension can prompt you to save the latest plan to a file.
+- Once plan mode is off, `<proposed_plan>` blocks are stripped from normal assistant context so later turns do not carry stale planning markup forward.
 
 ## Command Reference
 
@@ -80,45 +93,33 @@ Plan mode is designed for work that benefits from an explore-first workflow:
 
 ### `/plan:tools`
 
-Opens the plan-mode tool selector. If plan mode is not active yet, Pi enables plan mode first and then opens the selector.
-
-Use this when you want to allow additional tools during planning. Built-in `edit` and `write` stay blocked, but extra tools may have broader capabilities, so enable them deliberately.
+- Opens the plan-mode tool selector.
+- If plan mode is not active yet, Pi enables it first.
+- Safe built-in planning tools stay available by default.
+- Optional extension tools are opt-in and can remain selected across session restarts.
 
 ### `/plan:exit`
 
-Turns off plan mode and restores the tool set that was active before planning started.
+- Turns off plan mode.
+- Restores the tool set that was active before planning started.
+- If a latest plan exists, the extension can prompt you to save it to a file before exit completes.
 
-## Safety Rules During Plan Mode
+### `pi --plan`
 
-Plan mode keeps the agent in a read-only workflow by changing which tools are available:
+Starts Pi directly in plan mode at session startup.
+
+## Safety Model
+
+Plan mode keeps the default workflow read-only:
 
 - built-in `edit` and `write` are blocked
 - `bash` is limited to allowlisted read-only commands
-- mutating shell commands are blocked with an explicit plan-mode error
+- mutating shell commands are blocked with a plan-mode error
 - safe built-in planning tools remain available: `read`, `bash`, `grep`, `find`, and `ls`
 
-Additional optional tools are off by default. You can selectively enable them with `/plan:tools`. Built-in `edit` and `write` remain blocked, but enabled extra tools may still be able to mutate state through their own interfaces.
+Optional extension tools are off by default. You can enable them with `/plan:tools`, and those selections persist across sessions. Built-in `edit` and `write` remain blocked even when extra tools are enabled, but non-built-in tools may still expose broader capabilities through their own interfaces, so treat them as deliberate opt-ins.
 
-## Proposed Plan Detection And Handoff
-
-The extension adds a plan-mode system prompt that tells the agent to produce exactly one `<proposed_plan>` block.
-
-When the agent returns a proposed plan, `@pi-vault/pi-plan` automatically:
-
-- detects the plan block
-- stores the latest proposed plan in session state
-- updates the status and widget UI to show that a plan is ready
-- opens a ready menu so you can implement the plan, stay in plan mode, or exit
-
-If you choose **Implement this plan**, plan mode is disabled first, full tool access is restored, and the saved plan is sent back into the conversation as the next implementation instruction.
-
-## Tool Selector
-
-`/plan:tools` opens a custom TUI selector for additional optional tools.
-
-Safe built-in planning tools always stay available, blocked built-ins stay blocked, and any extra tools you enable persist across turns and session restore. Non-built-in tools run at your discretion and may provide capabilities beyond the default read-only planning tool set.
-
-## Development
+## Development And Verification
 
 ```bash
 pnpm install
@@ -127,6 +128,10 @@ pnpm run pack:dry-run
 pnpm run release:check
 ```
 
+## Changelog
+
+See [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+
 ## License
 
-MIT
+MIT — see [`LICENSE`](LICENSE).

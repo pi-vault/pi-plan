@@ -2,6 +2,24 @@
 
 All notable changes to `@pi-vault/pi-plan` are documented in this file.
 
+## [0.3.0] - 2026-07-07
+
+### Added
+
+- Save the latest proposed plan to a file when implementing or exiting plan mode.
+- Persist optional plan-mode tool selections across Pi sessions.
+- Show the latest proposed plan in the session timeline as a display-only message.
+
+### Changed
+
+- Strip `<proposed_plan>` blocks from assistant context when plan mode is off.
+- Restore persisted tool selections during session start.
+- Refresh the README to match the current usage-first workflow.
+
+### Fixed
+
+- Harden tool discovery and active-tool reads with safe fallbacks around host tool APIs.
+
 ## [0.2.0] - 2026-06-24
 
 ### Added
