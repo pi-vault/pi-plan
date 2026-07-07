@@ -1,3 +1,6 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
 import { PLAN_MENU_LABELS } from "../src/tui/menus.ts";
@@ -334,6 +337,87 @@ describe("session persistence", () => {
     await mock.fireEvent("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
 
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+  });
+
+  it("loads tool selections from config file on session_start", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "pi-plan-config-"));
+    const configDir = join(tempDir, "extensions");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      join(configDir, "plan-tools.json"),
+      JSON.stringify({ read: true, bash: true, custom_tool: true, edit: false }),
+    );
+
+    const originalEnv = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = tempDir;
+
+    try {
+      const mock = createMockPi();
+      createExtension(mock.pi);
+      const ctx = createMockContext({
+        entries: [
+          {
+            type: "custom",
+            customType: "plan-mode-state",
+            data: { enabled: true },
+            id: "1",
+            parentId: null,
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      });
+
+      await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
+
+      expect(mock.activeTools).toContain("custom_tool");
+      expect(mock.activeTools).toContain("read");
+      expect(mock.activeTools).not.toContain("edit");
+    } finally {
+      if (originalEnv !== undefined) {
+        process.env.PI_CODING_AGENT_DIR = originalEnv;
+      } else {
+        delete process.env.PI_CODING_AGENT_DIR;
+      }
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("writes tool config to file when tool selector saves", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "pi-plan-config-"));
+    const originalEnv = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = tempDir;
+
+    try {
+      const mock = createMockPi({
+        allTools: [
+          { name: "read", description: "Read", sourceInfo: { source: "builtin" } },
+          { name: "bash", description: "Bash", sourceInfo: { source: "builtin" } },
+          { name: "my-tool", description: "My tool", sourceInfo: { source: "my-ext" } },
+        ],
+      });
+      createExtension(mock.pi);
+
+      const ctx = createMockContext({ customResult: ["my-tool"] });
+      await mock.commands.get("plan")!.handler("", ctx.ctx); // enter plan mode
+      await mock.commands.get("plan:tools")!.handler("", ctx.ctx); // select my-tool
+
+      // Wait for async write to complete
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const configPath = join(tempDir, "extensions", "plan-tools.json");
+      expect(existsSync(configPath)).toBe(true);
+      const written = JSON.parse(readFileSync(configPath, "utf-8"));
+      expect(written.read).toBe(true);
+      expect(written.bash).toBe(true);
+      expect(written["my-tool"]).toBe(true);
+    } finally {
+      if (originalEnv !== undefined) {
+        process.env.PI_CODING_AGENT_DIR = originalEnv;
+      } else {
+        delete process.env.PI_CODING_AGENT_DIR;
+      }
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
 

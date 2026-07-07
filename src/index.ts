@@ -5,6 +5,7 @@ import {
   getAssistantMessageText,
   stripProposedPlanBlocksFromMessages,
 } from "./core/context.ts";
+import { readToolConfig, writeToolConfig } from "./core/config.ts";
 import { buildPlanModePrompt } from "./core/prompt.ts";
 import { isSafeCommand } from "./core/safety.ts";
 import { createInitialState, enterPlanMode, exitPlanMode, restoreState } from "./core/state.ts";
@@ -13,6 +14,8 @@ import {
   planModeToolNamesWithSelections,
   safeGetActiveTools,
   safeGetAllTools,
+  selectedNamesToToolConfig,
+  toolConfigToSelectedNames,
 } from "./core/tools.ts";
 import {
   BLOCKED_BUILTIN_TOOLS,
@@ -117,6 +120,11 @@ export default function createExtension(pi: ExtensionAPI): void {
     state = { ...state, selectedToolNames: selections };
     activatePlanModeTools();
     persist();
+
+    // Persist to config file
+    const toolConfig = selectedNamesToToolConfig(selections, allTools);
+    writeToolConfig(toolConfig).catch(() => {});
+
     const count = selections.length;
     const msg =
       count === 0
@@ -287,6 +295,12 @@ export default function createExtension(pi: ExtensionAPI): void {
 
     if (pi.getFlag("plan") === true) {
       state = enterPlanMode(state);
+    }
+
+    // Load persistent tool config (overrides session-entry selections)
+    const toolConfig = await readToolConfig();
+    if (toolConfig) {
+      state = { ...state, selectedToolNames: toolConfigToSelectedNames(toolConfig) };
     }
 
     if (state.enabled) {

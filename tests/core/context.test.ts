@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   extractProposedPlan,
-  filterPlanModeEntries,
   filterPlanModeMessages,
   getAssistantMessageText,
   stripProposedPlanBlocksFromMessages,
@@ -71,37 +70,6 @@ describe("getAssistantMessageText", () => {
       ],
     };
     expect(getAssistantMessageText(message)).toBe("only this");
-  });
-});
-
-describe("filterPlanModeEntries", () => {
-  it("removes entries matching the state entry type", () => {
-    const messages = [
-      { role: "user", content: "hello" },
-      { customType: STATE_ENTRY_TYPE, data: { enabled: true } },
-      { role: "assistant", content: "world" },
-    ];
-    const filtered = filterPlanModeEntries(messages, STATE_ENTRY_TYPE);
-    expect(filtered).toHaveLength(2);
-    expect(filtered[0]).toEqual({ role: "user", content: "hello" });
-    expect(filtered[1]).toEqual({ role: "assistant", content: "world" });
-  });
-
-  it("returns all messages when no state entries exist", () => {
-    const messages = [
-      { role: "user", content: "hello" },
-      { role: "assistant", content: "world" },
-    ];
-    expect(filterPlanModeEntries(messages, STATE_ENTRY_TYPE)).toHaveLength(2);
-  });
-
-  it("keeps proposed_plan blocks in assistant messages", () => {
-    const messages = [
-      { role: "assistant", content: "Plan:\n<proposed_plan>\n# Plan\n</proposed_plan>" },
-    ];
-    const filtered = filterPlanModeEntries(messages, STATE_ENTRY_TYPE);
-    expect(filtered).toHaveLength(1);
-    expect(filtered[0].content as string).toContain("<proposed_plan>");
   });
 });
 

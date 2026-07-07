@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { TOOL_SELECTOR_PAGE_SIZE } from "../../src/shared/constants.ts";
 import {
   getVisibleTools,
   initToolSelectorState,
   isToggleable,
-  TOOL_SELECTOR_PAGE_SIZE,
   type ToolSelectorAction,
   type ToolSelectorItem,
   type ToolSelectorResult,
