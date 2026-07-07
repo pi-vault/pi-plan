@@ -1,4 +1,4 @@
-const PLAN_BLOCK_REGEX = /<proposed_plan>\s*([\s\S]*?)\s*<\/proposed_plan>/i;
+const PLAN_BLOCK_REGEX = /<proposed_plan>([\s\S]*?)<\/proposed_plan>/i;
 
 export function extractProposedPlan(text: string): string | undefined {
   const match = text.match(PLAN_BLOCK_REGEX);
@@ -26,6 +26,48 @@ export function filterPlanModeEntries(
   entryType: string,
 ): Array<Record<string, unknown>> {
   return messages.filter((msg) => msg.customType !== entryType);
+}
+
+const PROPOSED_PLAN_BLOCK_PATTERN =
+  /<proposed_plan>[\s\S]*?<\/proposed_plan>/gi;
+
+function stripProposedPlanBlocks(text: string): string {
+  return text.replace(PROPOSED_PLAN_BLOCK_PATTERN, "");
+}
+
+export function stripProposedPlanBlocksFromMessages(
+  messages: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  let changed = false;
+  const result = messages.map((msg) => {
+    if (msg.role !== "assistant") return msg;
+    const content = msg.content;
+    if (typeof content === "string") {
+      const stripped = stripProposedPlanBlocks(content);
+      if (stripped !== content) {
+        changed = true;
+        return { ...msg, content: stripped };
+      }
+      return msg;
+    }
+    if (!Array.isArray(content)) return msg;
+    let blockChanged = false;
+    const newContent = content.map((block: Record<string, unknown>) => {
+      if (block.type !== "text" || typeof block.text !== "string") return block;
+      const stripped = stripProposedPlanBlocks(block.text as string);
+      if (stripped !== block.text) {
+        blockChanged = true;
+        return { ...block, text: stripped };
+      }
+      return block;
+    });
+    if (blockChanged) {
+      changed = true;
+      return { ...msg, content: newContent };
+    }
+    return msg;
+  });
+  return changed ? result : messages;
 }
 
 export function filterPlanModeMessages(

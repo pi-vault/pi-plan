@@ -4,6 +4,7 @@ import {
   filterPlanModeEntries,
   filterPlanModeMessages,
   getAssistantMessageText,
+  stripProposedPlanBlocksFromMessages,
 } from "../../src/core/context.ts";
 import {
   PROPOSED_PLAN_MESSAGE_TYPE,
@@ -151,5 +152,55 @@ describe("filterPlanModeMessages", () => {
     const filtered = filterPlanModeMessages(messages, STATE_ENTRY_TYPE, undefined);
     expect(filtered).toHaveLength(1);
     expect(filtered[0]).toEqual({ role: "user", content: "hello" });
+  });
+});
+
+describe("stripProposedPlanBlocksFromMessages", () => {
+  it("strips plan blocks from assistant messages with string content", () => {
+    const messages = [
+      { role: "user", content: "hello" },
+      {
+        role: "assistant",
+        content: "Here: <proposed_plan>\n# Plan\n</proposed_plan>\nDone.",
+      },
+    ];
+    const result = stripProposedPlanBlocksFromMessages(messages);
+    expect(result[0]).toEqual({ role: "user", content: "hello" });
+    expect((result[1] as any).content).toBe("Here: \nDone.");
+  });
+
+  it("strips plan blocks from assistant messages with array content", () => {
+    const messages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "Before <proposed_plan>plan</proposed_plan> after",
+          },
+          { type: "tool_use", name: "read" },
+        ],
+      },
+    ];
+    const result = stripProposedPlanBlocksFromMessages(messages);
+    const content = (result[0] as any).content;
+    expect(content[0].text).toBe("Before  after");
+    expect(content[1]).toEqual({ type: "tool_use", name: "read" });
+  });
+
+  it("does not modify user messages", () => {
+    const messages = [
+      { role: "user", content: "<proposed_plan>user plan</proposed_plan>" },
+    ];
+    const result = stripProposedPlanBlocksFromMessages(messages);
+    expect((result[0] as any).content).toBe(
+      "<proposed_plan>user plan</proposed_plan>",
+    );
+  });
+
+  it("returns same array reference when nothing to strip", () => {
+    const messages = [{ role: "assistant", content: "no plan here" }];
+    const result = stripProposedPlanBlocksFromMessages(messages);
+    expect(result).toBe(messages);
   });
 });

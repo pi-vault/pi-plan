@@ -541,31 +541,6 @@ describe("context handler", () => {
     expect(messages).toHaveLength(2);
   });
 
-  it("keeps proposed_plan blocks in assistant messages", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext();
-
-    const result = await mock.fireEvent(
-      "context",
-      {
-        type: "context",
-        messages: [
-          {
-            role: "assistant",
-            content: "text <proposed_plan>\n# Plan\n</proposed_plan>",
-          },
-        ],
-      },
-      ctx,
-    );
-
-    if (result) {
-      const msgs = (result as { messages: Array<{ content: string }> }).messages;
-      expect(msgs[0].content).toContain("<proposed_plan>");
-    }
-  });
-
   it("filters proposed-plan messages when plan mode is off", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
@@ -628,6 +603,56 @@ describe("context handler", () => {
       ctx,
     );
 
+    expect(result).toBeUndefined();
+  });
+
+  it("strips proposed_plan blocks from assistant messages when plan mode is off", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+
+    const result = await mock.fireEvent(
+      "context",
+      {
+        type: "context",
+        messages: [
+          {
+            role: "assistant",
+            content:
+              "Here is the plan:\n<proposed_plan>\n# Old Plan\n</proposed_plan>\nEnd.",
+          },
+        ],
+      },
+      ctx,
+    );
+
+    expect(result).toBeDefined();
+    const { messages } = result as { messages: Array<Record<string, unknown>> };
+    expect(messages).toHaveLength(1);
+    expect((messages[0] as any).content).toBe("Here is the plan:\n\nEnd.");
+  });
+
+  it("does not strip proposed_plan blocks when plan mode is on", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    const result = await mock.fireEvent(
+      "context",
+      {
+        type: "context",
+        messages: [
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# Current Plan\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
+
+    // No filtering — plan mode is on, no state entries to remove
     expect(result).toBeUndefined();
   });
 });
