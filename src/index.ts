@@ -7,7 +7,12 @@ import {
 import { buildPlanModePrompt } from "./core/prompt.ts";
 import { isSafeCommand } from "./core/safety.ts";
 import { createInitialState, enterPlanMode, exitPlanMode, restoreState } from "./core/state.ts";
-import { normalModeToolNames, planModeToolNamesWithSelections } from "./core/tools.ts";
+import {
+  normalModeToolNames,
+  planModeToolNamesWithSelections,
+  safeGetActiveTools,
+  safeGetAllTools,
+} from "./core/tools.ts";
 import {
   BLOCKED_BUILTIN_TOOLS,
   STATE_ENTRY_TYPE,
@@ -17,7 +22,7 @@ import {
 import type { PlanModeState } from "./shared/types.ts";
 import { type PlanMenuAction, showPlanMenu, showPlanReadyMenu } from "./tui/menus.ts";
 import { formatStatus } from "./tui/status.ts";
-import { createToolSelectorComponent, type ToolSelectorItem } from "./tui/tool-selector.ts";
+import { createToolSelectorComponent } from "./tui/tool-selector.ts";
 import { formatWidgetLines } from "./tui/widgets.ts";
 
 export default function createExtension(pi: ExtensionAPI): void {
@@ -47,7 +52,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   function activatePlanModeTools(): void {
     if (previousTools === undefined) {
-      previousTools = pi.getActiveTools();
+      previousTools = safeGetActiveTools(pi);
     }
     pi.setActiveTools(planModeToolNamesWithSelections(state.selectedToolNames));
   }
@@ -84,7 +89,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   }
 
   async function runToolSelector(ctx: ExtensionContext): Promise<void> {
-    const allTools = pi.getAllTools() as ToolSelectorItem[];
+    const allTools = safeGetAllTools(pi);
     const selections = await ctx.ui.custom<string[] | null>((_tui, theme, _keybindings, done) => {
       let requestRender: () => void = () => {};
       const component = createToolSelectorComponent({
