@@ -3,6 +3,7 @@ import {
   extractProposedPlan,
   filterPlanModeMessages,
   getAssistantMessageText,
+  stripProposedPlanBlocksFromMessages,
 } from "./core/context.ts";
 import { buildPlanModePrompt } from "./core/prompt.ts";
 import { isSafeCommand } from "./core/safety.ts";
@@ -266,8 +267,11 @@ export default function createExtension(pi: ExtensionAPI): void {
     const messages = (event.messages as unknown as Array<Record<string, unknown>>) ?? [];
     const planMessageType = state.enabled ? undefined : PROPOSED_PLAN_MESSAGE_TYPE;
     const filtered = filterPlanModeMessages(messages, STATE_ENTRY_TYPE, planMessageType);
-    if (filtered.length !== messages.length) {
-      return { messages: filtered as unknown as typeof event.messages };
+    const processed = state.enabled
+      ? filtered
+      : stripProposedPlanBlocksFromMessages(filtered);
+    if (filtered.length !== messages.length || processed !== filtered) {
+      return { messages: processed as unknown as typeof event.messages };
     }
   });
 
