@@ -45,6 +45,7 @@ export interface MockContext {
   notifications: Array<{ message: string; type?: string }>;
   widgets: Map<string, unknown>;
   selectCalls: Array<{ title: string; options: string[] }>;
+  inputCalls: Array<{ title: string; placeholder?: string }>;
   customCalls: Array<{ result: unknown }>;
 }
 
@@ -127,15 +128,19 @@ export function createMockContext(options?: {
   entries?: SessionEntry[];
   hasUI?: boolean;
   isIdle?: boolean;
+  cwd?: string;
   selectResponses?: string[];
+  inputResponses?: (string | undefined)[];
   customResult?: unknown;
 }): MockContext {
   const statuses = new Map<string, string | undefined>();
   const notifications: Array<{ message: string; type?: string }> = [];
   const widgets = new Map<string, unknown>();
   const selectCalls: Array<{ title: string; options: string[] }> = [];
+  const inputCalls: Array<{ title: string; placeholder?: string }> = [];
   const customCalls: Array<{ result: unknown }> = [];
   const selectQueue = [...(options?.selectResponses ?? [])];
+  const inputQueue = [...(options?.inputResponses ?? [])];
   const sessionEntries: SessionEntry[] = options?.entries ?? [];
 
   const mockCtx: MockContext = {
@@ -157,6 +162,10 @@ export function createMockContext(options?: {
         async select(title: string, opts: string[]) {
           selectCalls.push({ title, options: opts });
           return selectQueue.shift();
+        },
+        async input(title: string, placeholder?: string) {
+          inputCalls.push({ title, placeholder });
+          return inputQueue.shift();
         },
         async custom(factory: Function) {
           const result = options?.customResult ?? null;
@@ -180,6 +189,7 @@ export function createMockContext(options?: {
       },
       hasUI: options?.hasUI ?? true,
       isIdle: () => options?.isIdle ?? true,
+      cwd: options?.cwd ?? "/mock/cwd",
       sessionManager: {
         getEntries: () => sessionEntries,
       },
@@ -188,6 +198,7 @@ export function createMockContext(options?: {
     notifications,
     widgets,
     selectCalls,
+    inputCalls,
     customCalls,
   };
 
