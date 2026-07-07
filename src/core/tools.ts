@@ -33,3 +33,25 @@ export function safeGetActiveTools(pi: ExtensionAPI): string[] {
     return [...DEFAULT_TOOLS];
   }
 }
+
+export function toolConfigToSelectedNames(config: Record<string, boolean>): string[] {
+  return Object.entries(config)
+    .filter(([name, enabled]) => enabled && !SAFE_BUILTIN_PLAN_TOOLS.has(name))
+    .map(([name]) => name);
+}
+
+export function selectedNamesToToolConfig(
+  selectedNames: string[],
+  allTools: ToolSelectorItem[],
+): Record<string, boolean> {
+  const selected = new Set(selectedNames);
+  const config: Record<string, boolean> = {};
+  for (const tool of allTools) {
+    if (SAFE_BUILTIN_PLAN_TOOLS.has(tool.name)) {
+      config[tool.name] = true;
+    } else {
+      config[tool.name] = selected.has(tool.name);
+    }
+  }
+  return config;
+}

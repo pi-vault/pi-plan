@@ -6,6 +6,8 @@ import {
   planModeToolNamesWithSelections,
   safeGetActiveTools,
   safeGetAllTools,
+  selectedNamesToToolConfig,
+  toolConfigToSelectedNames,
 } from "../../src/core/tools.ts";
 
 describe("defaultPlanModeToolNames", () => {
@@ -104,5 +106,63 @@ describe("safeGetActiveTools", () => {
       },
     } as unknown as ExtensionAPI;
     expect(safeGetActiveTools(pi)).toEqual(["read", "bash", "edit", "write"]);
+  });
+});
+
+describe("toolConfigToSelectedNames", () => {
+  it("returns names where value is true, excluding safe builtins", () => {
+    const config = {
+      read: true,
+      bash: true,
+      custom: true,
+      edit: false,
+      another: true,
+    };
+    const result = toolConfigToSelectedNames(config);
+    expect(result).toContain("custom");
+    expect(result).toContain("another");
+    expect(result).not.toContain("read");
+    expect(result).not.toContain("bash");
+    expect(result).not.toContain("edit");
+  });
+
+  it("returns empty array when all values are false", () => {
+    const config = { custom: false, edit: false };
+    expect(toolConfigToSelectedNames(config)).toEqual([]);
+  });
+
+  it("returns empty array for empty config", () => {
+    expect(toolConfigToSelectedNames({})).toEqual([]);
+  });
+});
+
+describe("selectedNamesToToolConfig", () => {
+  it("builds full map from selected names and all tools", () => {
+    const allTools = [
+      { name: "read", sourceInfo: { source: "builtin" } },
+      { name: "bash", sourceInfo: { source: "builtin" } },
+      { name: "edit", sourceInfo: { source: "builtin" } },
+      { name: "custom", sourceInfo: { source: "extension" } },
+      { name: "another", sourceInfo: { source: "extension" } },
+    ];
+    const selected = ["custom"];
+    const config = selectedNamesToToolConfig(selected, allTools);
+    expect(config).toEqual({
+      read: true,
+      bash: true,
+      edit: false,
+      custom: true,
+      another: false,
+    });
+  });
+
+  it("marks safe builtins as true regardless of selection", () => {
+    const allTools = [
+      { name: "read", sourceInfo: { source: "builtin" } },
+      { name: "grep", sourceInfo: { source: "builtin" } },
+    ];
+    const config = selectedNamesToToolConfig([], allTools);
+    expect(config.read).toBe(true);
+    expect(config.grep).toBe(true);
   });
 });
