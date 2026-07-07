@@ -1,6 +1,6 @@
 {
   "name": "@pi-vault/pi-plan",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "Pi extension that adds a read-only plan mode for exploring first and producing a decision-complete implementation plan",
   "author": "Lanh Hoang <lanhhoang@users.noreply.github.com>",
