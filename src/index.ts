@@ -22,6 +22,7 @@ import {
   WIDGET_KEY,
 } from "./shared/constants.ts";
 import type { PlanModeState } from "./shared/types.ts";
+import { savePlanToFile } from "./core/plan-file.ts";
 import { type PlanMenuAction, showPlanMenu, showPlanReadyMenu } from "./tui/menus.ts";
 import { formatStatus } from "./tui/status.ts";
 import { createToolSelectorComponent } from "./tui/tool-selector.ts";
@@ -128,6 +129,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     switch (action) {
       case "implement": {
         const plan = state.latestPlan;
+        if (plan) await savePlanToFile(plan, ctx);
         doExit(ctx);
         if (plan) {
           sendPlanModeMessage(
@@ -139,6 +141,7 @@ export default function createExtension(pi: ExtensionAPI): void {
         break;
       }
       case "exit":
+        if (state.latestPlan) await savePlanToFile(state.latestPlan, ctx);
         doExit(ctx);
         ctx.ui.notify("Plan mode disabled.", "info");
         break;
@@ -185,7 +188,10 @@ export default function createExtension(pi: ExtensionAPI): void {
     description: "Exit plan mode",
     handler: async (_args, ctx) => {
       clearPendingMenu();
-      if (state.enabled) doExit(ctx);
+      if (state.enabled) {
+        if (state.latestPlan) await savePlanToFile(state.latestPlan, ctx);
+        doExit(ctx);
+      }
       ctx.ui.notify("Plan mode disabled.", "info");
     },
   });

@@ -89,6 +89,32 @@ describe("/plan:exit command", () => {
     await mock.commands.get("plan:exit")!.handler("", ctx.ctx);
     expect(ctx.notifications.some((n) => n.message.includes("disabled"))).toBe(true);
   });
+
+  it("prompts to save plan when plan exists", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      inputResponses: [undefined], // user cancels save
+    });
+
+    await mock.commands.get("plan")!.handler("", ctx.ctx); // enter plan mode
+
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          { role: "assistant", content: "<proposed_plan>\n# Plan\n</proposed_plan>" },
+        ],
+      },
+      ctx,
+    );
+
+    await mock.commands.get("plan:exit")!.handler("", ctx.ctx);
+
+    expect(ctx.inputCalls).toHaveLength(1);
+    expect(ctx.inputCalls[0].title).toContain("Save plan");
+  });
 });
 
 describe("tool management", () => {
@@ -792,6 +818,82 @@ describe("plan menu actions", () => {
     await handler("", ctx.ctx);
 
     expect(ctx.notifications.some((n) => n.message.includes("# My Plan"))).toBe(true);
+  });
+
+  it("implement: prompts to save plan before exiting", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      selectResponses: [PLAN_MENU_LABELS.implement],
+      inputResponses: [undefined], // user cancels save
+    });
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("", ctx.ctx); // enter plan mode
+
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
+
+    await handler("", ctx.ctx); // menu -> implement
+
+    expect(ctx.inputCalls).toHaveLength(1);
+    expect(ctx.inputCalls[0].title).toContain("Save plan");
+  });
+
+  it("exit: prompts to save plan before exiting when plan exists", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      selectResponses: [PLAN_MENU_LABELS.exit],
+      inputResponses: [undefined], // user cancels save
+    });
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("", ctx.ctx); // enter plan mode
+
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
+
+    await handler("", ctx.ctx); // menu -> exit
+
+    expect(ctx.inputCalls).toHaveLength(1);
+  });
+
+  it("exit: does not prompt when no plan exists", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      selectResponses: [PLAN_MENU_LABELS.exit],
+      inputResponses: [],
+    });
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("", ctx.ctx); // enter plan mode
+    await handler("", ctx.ctx); // menu -> exit (no plan yet)
+
+    expect(ctx.inputCalls).toHaveLength(0);
   });
 });
 
