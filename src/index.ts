@@ -239,7 +239,16 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
-    if (!state.enabled) return;
+    if (!state.enabled) {
+      const plan = state.latestPlan;
+      if (!plan) return;
+      state = { ...state, latestPlan: undefined, awaitingAction: false };
+      persist();
+      updateUi(ctx);
+      return {
+        systemPrompt: `${event.systemPrompt}\n\n[PLAN HANDOFF]\ndo not implement the plan unless asked\n\n${plan}`,
+      };
+    }
     pi.setActiveTools(planModeToolNamesWithSelections(state.selectedToolNames));
     state = { ...state, latestPlan: undefined, awaitingAction: false };
     updateUi(ctx);

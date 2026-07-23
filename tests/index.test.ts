@@ -422,6 +422,77 @@ describe("session persistence", () => {
 });
 
 describe("before_agent_start", () => {
+  it("injects a pending plan once after restoring disabled state", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      entries: [
+        {
+          type: "custom",
+          customType: "plan-mode-state",
+          data: { enabled: false, latestPlan: "# Restored Plan", awaitingAction: true },
+          id: "1",
+          parentId: null,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    });
+
+    await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
+
+    const first = await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "base prompt" },
+      ctx,
+    );
+    expect((first as { systemPrompt: string }).systemPrompt).toContain("base prompt");
+    expect((first as { systemPrompt: string }).systemPrompt).toContain("[PLAN HANDOFF]");
+    expect((first as { systemPrompt: string }).systemPrompt).toContain(
+      "do not implement the plan unless asked",
+    );
+    expect((first as { systemPrompt: string }).systemPrompt).toContain("# Restored Plan");
+
+    const second = await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "base prompt" },
+      ctx,
+    );
+    expect(second).toBeUndefined();
+
+    const persisted = mock.entries.filter((entry) => entry.customType === "plan-mode-state");
+    expect(persisted.at(-1)?.data).toMatchObject({ latestPlan: undefined, awaitingAction: false });
+  });
+
+  it("discards a pending plan when /plan re-enters plan mode", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      entries: [
+        {
+          type: "custom",
+          customType: "plan-mode-state",
+          data: { enabled: false, latestPlan: "# Pending Plan", awaitingAction: true },
+          id: "1",
+          parentId: null,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    });
+
+    await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    const result = await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "base prompt" },
+      ctx,
+    );
+    const { systemPrompt } = result as { systemPrompt: string };
+    expect(systemPrompt).toContain("[PLAN MODE ACTIVE]");
+    expect(systemPrompt).not.toContain("[PLAN HANDOFF]");
+    expect(systemPrompt).not.toContain("# Pending Plan");
+  });
+
   it("injects plan mode prompt when plan mode is enabled", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
@@ -440,7 +511,7 @@ describe("before_agent_start", () => {
     expect(systemPrompt).toContain("[PLAN MODE ACTIVE]");
   });
 
-  it("does not modify prompt when plan mode is off", async () => {
+  it("leaves the prompt unchanged when disabled with no pending plan", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
     const ctx = createMockContext();
