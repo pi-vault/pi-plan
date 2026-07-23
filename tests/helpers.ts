@@ -128,9 +128,7 @@ export function createMockContext(options?: {
   entries?: SessionEntry[];
   hasUI?: boolean;
   isIdle?: boolean;
-  cwd?: string;
   selectResponses?: string[];
-  inputResponses?: (string | undefined)[];
   customResult?: unknown;
 }): MockContext {
   const statuses = new Map<string, string | undefined>();
@@ -140,7 +138,6 @@ export function createMockContext(options?: {
   const inputCalls: Array<{ title: string; placeholder?: string }> = [];
   const customCalls: Array<{ result: unknown }> = [];
   const selectQueue = [...(options?.selectResponses ?? [])];
-  const inputQueue = [...(options?.inputResponses ?? [])];
   const sessionEntries: SessionEntry[] = options?.entries ?? [];
 
   const mockCtx: MockContext = {
@@ -165,7 +162,7 @@ export function createMockContext(options?: {
         },
         async input(title: string, placeholder?: string) {
           inputCalls.push({ title, placeholder });
-          return inputQueue.shift();
+          return undefined;
         },
         async custom(factory: Function) {
           const result = options?.customResult ?? null;
@@ -189,7 +186,6 @@ export function createMockContext(options?: {
       },
       hasUI: options?.hasUI ?? true,
       isIdle: () => options?.isIdle ?? true,
-      cwd: options?.cwd ?? "/mock/cwd",
       sessionManager: {
         getEntries: () => sessionEntries,
       },

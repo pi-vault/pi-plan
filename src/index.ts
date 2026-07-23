@@ -25,7 +25,6 @@ import {
   WIDGET_KEY,
 } from "./shared/constants.ts";
 import type { PlanModeState } from "./shared/types.ts";
-import { savePlanToFile } from "./core/plan-file.ts";
 import { type PlanMenuAction, showPlanMenu, showPlanReadyMenu } from "./tui/menus.ts";
 import { formatStatus } from "./tui/status.ts";
 import { createToolSelectorComponent } from "./tui/tool-selector.ts";
@@ -137,9 +136,10 @@ export default function createExtension(pi: ExtensionAPI): void {
     switch (action) {
       case "implement": {
         const plan = state.latestPlan;
-        if (plan) await savePlanToFile(plan, ctx);
         doExit(ctx);
         if (plan) {
+          state = { ...state, latestPlan: undefined, awaitingAction: false };
+          persist();
           sendPlanModeMessage(
             `Plan mode is now disabled. Full tool access is restored. Implement this proposed plan now:\n\n${plan}`,
             ctx,
@@ -149,7 +149,6 @@ export default function createExtension(pi: ExtensionAPI): void {
         break;
       }
       case "exit":
-        if (state.latestPlan) await savePlanToFile(state.latestPlan, ctx);
         doExit(ctx);
         ctx.ui.notify("Plan mode disabled.", "info");
         break;
@@ -197,7 +196,6 @@ export default function createExtension(pi: ExtensionAPI): void {
     handler: async (_args, ctx) => {
       clearPendingMenu();
       if (state.enabled) {
-        if (state.latestPlan) await savePlanToFile(state.latestPlan, ctx);
         doExit(ctx);
       }
       ctx.ui.notify("Plan mode disabled.", "info");
@@ -239,7 +237,16 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
-    if (!state.enabled) return;
+    if (!state.enabled) {
+      const plan = state.latestPlan;
+      if (!plan) return;
+      state = { ...state, latestPlan: undefined, awaitingAction: false };
+      persist();
+      updateUi(ctx);
+      return {
+        systemPrompt: `${event.systemPrompt}\n\n[PLAN HANDOFF]\nThe latest proposed plan is available for this turn as context. Follow the current user request; do not implement the plan unless asked.\n\n${plan}`,
+      };
+    }
     pi.setActiveTools(planModeToolNamesWithSelections(state.selectedToolNames));
     state = { ...state, latestPlan: undefined, awaitingAction: false };
     updateUi(ctx);
@@ -259,14 +266,6 @@ export default function createExtension(pi: ExtensionAPI): void {
     state = { ...state, latestPlan: plan, awaitingAction: true };
     persist();
     updateUi(ctx);
-    pi.sendMessage(
-      {
-        customType: PROPOSED_PLAN_MESSAGE_TYPE,
-        content: `**Proposed Plan**\n\n${plan}`,
-        display: true,
-      },
-      { triggerTurn: false },
-    );
     clearPendingMenu();
     pendingMenuTimer = setTimeout(
       () =>

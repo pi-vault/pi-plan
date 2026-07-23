@@ -72,15 +72,15 @@ A typical flow looks like this:
 3. Receive exactly one `<proposed_plan>` block when the plan is ready.
 4. Choose whether to implement it, stay in plan mode, or exit.
 
-If you choose **Implement this plan**, pi-plan turns plan mode off first, restores full tool access, and sends the saved plan back into the conversation as the next implementation instruction.
+If you choose **Implement this plan**, pi-plan turns plan mode off first, restores full tool access, and immediately sends the full proposed plan back into the conversation as the implementation instruction.
 
 ## What’s New In Current Behavior
 
 The current release behavior includes a few workflow improvements beyond the original 0.2.0 command surface:
 
 - Optional plan-mode tool selections persist across Pi sessions.
-- The latest proposed plan is shown in the session timeline as a display-only message.
-- On implement and exit paths, the extension can prompt you to save the latest plan to a file.
+- Choosing **Implement this plan** directly sends the full proposed plan as the next instruction.
+- After a normal exit, the latest proposed plan is available only to the next normal-mode turn, then it is consumed.
 - Once plan mode is off, `<proposed_plan>` blocks are stripped from normal assistant context so later turns do not carry stale planning markup forward.
 
 ## Command Reference
@@ -102,7 +102,10 @@ The current release behavior includes a few workflow improvements beyond the ori
 
 - Turns off plan mode.
 - Restores the tool set that was active before planning started.
-- If a latest plan exists, the extension can prompt you to save it to a file before exit completes.
+- Preserves the latest plan for the next normal-mode prompt only, then consumes it. To save it:
+  1. Select **Exit** or run `/plan:exit`.
+  2. On the next prompt, ask: `Write the latest proposed plan verbatim to docs/my-plan.md. Do not implement it.`
+- `/plan:exit` does not accept handoff text: `/plan:exit write the plan to proposed-plan.md` exits but does not send the write request. Re-entering plan mode before the next normal prompt discards the pending plan.
 
 ### `pi --plan`
 

@@ -93,12 +93,10 @@ describe("/plan:exit command", () => {
     expect(ctx.notifications.some((n) => n.message.includes("disabled"))).toBe(true);
   });
 
-  it("prompts to save plan when plan exists", async () => {
+  it("does not prompt when a plan exists", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
-    const ctx = createMockContext({
-      inputResponses: [undefined], // user cancels save
-    });
+    const ctx = createMockContext();
 
     await mock.commands.get("plan")!.handler("", ctx.ctx); // enter plan mode
 
@@ -115,8 +113,7 @@ describe("/plan:exit command", () => {
 
     await mock.commands.get("plan:exit")!.handler("", ctx.ctx);
 
-    expect(ctx.inputCalls).toHaveLength(1);
-    expect(ctx.inputCalls[0].title).toContain("Save plan");
+    expect(ctx.inputCalls).toHaveLength(0);
   });
 });
 
@@ -422,6 +419,77 @@ describe("session persistence", () => {
 });
 
 describe("before_agent_start", () => {
+  it("injects a pending plan once after restoring disabled state", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      entries: [
+        {
+          type: "custom",
+          customType: "plan-mode-state",
+          data: { enabled: false, latestPlan: "# Restored Plan", awaitingAction: true },
+          id: "1",
+          parentId: null,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    });
+
+    await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
+
+    const first = await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "base prompt" },
+      ctx,
+    );
+    expect((first as { systemPrompt: string }).systemPrompt).toContain("base prompt");
+    expect((first as { systemPrompt: string }).systemPrompt).toContain("[PLAN HANDOFF]");
+    expect((first as { systemPrompt: string }).systemPrompt).toContain(
+      "The latest proposed plan is available for this turn as context. Follow the current user request; do not implement the plan unless asked.",
+    );
+    expect((first as { systemPrompt: string }).systemPrompt).toContain("# Restored Plan");
+
+    const second = await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "base prompt" },
+      ctx,
+    );
+    expect(second).toBeUndefined();
+
+    const persisted = mock.entries.filter((entry) => entry.customType === "plan-mode-state");
+    expect(persisted.at(-1)?.data).toMatchObject({ latestPlan: undefined, awaitingAction: false });
+  });
+
+  it("discards a pending plan when /plan re-enters plan mode", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      entries: [
+        {
+          type: "custom",
+          customType: "plan-mode-state",
+          data: { enabled: false, latestPlan: "# Pending Plan", awaitingAction: true },
+          id: "1",
+          parentId: null,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    });
+
+    await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    const result = await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "base prompt" },
+      ctx,
+    );
+    const { systemPrompt } = result as { systemPrompt: string };
+    expect(systemPrompt).toContain("[PLAN MODE ACTIVE]");
+    expect(systemPrompt).not.toContain("[PLAN HANDOFF]");
+    expect(systemPrompt).not.toContain("# Pending Plan");
+  });
+
   it("injects plan mode prompt when plan mode is enabled", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
@@ -440,7 +508,7 @@ describe("before_agent_start", () => {
     expect(systemPrompt).toContain("[PLAN MODE ACTIVE]");
   });
 
-  it("does not modify prompt when plan mode is off", async () => {
+  it("leaves the prompt unchanged when disabled with no pending plan", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
     const ctx = createMockContext();
@@ -528,6 +596,11 @@ describe("agent_end", () => {
     );
 
     expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
+    expect(
+      mock.messages.some(
+        (m) => (m.message as { customType?: unknown }).customType === "proposed-plan",
+      ),
+    ).toBe(false);
   });
 
   it("does nothing when plan mode is off", async () => {
@@ -550,36 +623,6 @@ describe("agent_end", () => {
     );
 
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
-  });
-
-  it("sends a display-only proposed-plan message when plan is detected", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext();
-    await mock.commands.get("plan")!.handler("", ctx.ctx);
-
-    await mock.fireEvent(
-      "agent_end",
-      {
-        type: "agent_end",
-        messages: [
-          {
-            role: "assistant",
-            content:
-              "<proposed_plan>\n# The Plan\n## Summary\nDo it\n</proposed_plan>",
-          },
-        ],
-      },
-      ctx,
-    );
-
-    const planMessage = mock.messages.find(
-      (m) => (m.message as any).customType === "proposed-plan",
-    );
-    expect(planMessage).toBeDefined();
-    expect((planMessage!.message as any).display).toBe(true);
-    expect((planMessage!.message as any).content).toContain("# The Plan");
-    expect(planMessage!.options).toEqual({ triggerTurn: false });
   });
 
   it("does nothing when no proposed plan in messages", async () => {
@@ -845,8 +888,39 @@ describe("plan menu actions", () => {
 
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
     expect(mock.userMessages).toHaveLength(1);
-    expect(mock.userMessages[0].content as string).toContain("Implement this proposed plan now");
-    expect(mock.userMessages[0].content as string).toContain("# My Plan");
+    expect(mock.userMessages[0].content).toBe(
+      "Plan mode is now disabled. Full tool access is restored. Implement this proposed plan now:\n\n# My Plan\n## Summary\nBuild the thing",
+    );
+    expect(ctx.inputCalls).toHaveLength(0);
+    const persisted = mock.entries.filter((entry) => entry.customType === "plan-mode-state");
+    expect(persisted.at(-1)?.data).toMatchObject({ latestPlan: undefined, awaitingAction: false });
+  });
+
+  it("implement: queues the full plan as a follow-up when busy", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      isIdle: false,
+      selectResponses: [PLAN_MENU_LABELS.implement],
+    });
+    const plan = "# Queued Plan\n\n## Details\nKeep every line.";
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("", ctx.ctx);
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [{ role: "assistant", content: `<proposed_plan>\n${plan}\n</proposed_plan>` }],
+      },
+      ctx,
+    );
+    await handler("", ctx.ctx);
+
+    expect(mock.userMessages[0].content).toContain(plan);
+    expect(mock.userMessages[0].options).toEqual({ deliverAs: "followUp" });
+    const persisted = mock.entries.filter((entry) => entry.customType === "plan-mode-state");
+    expect(persisted.at(-1)?.data).toMatchObject({ latestPlan: undefined, awaitingAction: false });
   });
 
   it("exit: exits plan mode without sending message", async () => {
@@ -856,10 +930,24 @@ describe("plan menu actions", () => {
 
     const handler = mock.commands.get("plan")!.handler;
     await handler("", ctx.ctx); // enter plan mode
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
     await handler("", ctx.ctx); // show menu, select exit
 
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
     expect(mock.userMessages).toHaveLength(0);
+    expect(ctx.inputCalls).toHaveLength(0);
   });
 
   it("stay: keeps plan mode active", async () => {
@@ -904,81 +992,6 @@ describe("plan menu actions", () => {
     expect(ctx.notifications.some((n) => n.message.includes("# My Plan"))).toBe(true);
   });
 
-  it("implement: prompts to save plan before exiting", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext({
-      selectResponses: [PLAN_MENU_LABELS.implement],
-      inputResponses: [undefined], // user cancels save
-    });
-
-    const handler = mock.commands.get("plan")!.handler;
-    await handler("", ctx.ctx); // enter plan mode
-
-    await mock.fireEvent(
-      "agent_end",
-      {
-        type: "agent_end",
-        messages: [
-          {
-            role: "assistant",
-            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
-          },
-        ],
-      },
-      ctx,
-    );
-
-    await handler("", ctx.ctx); // menu -> implement
-
-    expect(ctx.inputCalls).toHaveLength(1);
-    expect(ctx.inputCalls[0].title).toContain("Save plan");
-  });
-
-  it("exit: prompts to save plan before exiting when plan exists", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext({
-      selectResponses: [PLAN_MENU_LABELS.exit],
-      inputResponses: [undefined], // user cancels save
-    });
-
-    const handler = mock.commands.get("plan")!.handler;
-    await handler("", ctx.ctx); // enter plan mode
-
-    await mock.fireEvent(
-      "agent_end",
-      {
-        type: "agent_end",
-        messages: [
-          {
-            role: "assistant",
-            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
-          },
-        ],
-      },
-      ctx,
-    );
-
-    await handler("", ctx.ctx); // menu -> exit
-
-    expect(ctx.inputCalls).toHaveLength(1);
-  });
-
-  it("exit: does not prompt when no plan exists", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext({
-      selectResponses: [PLAN_MENU_LABELS.exit],
-      inputResponses: [],
-    });
-
-    const handler = mock.commands.get("plan")!.handler;
-    await handler("", ctx.ctx); // enter plan mode
-    await handler("", ctx.ctx); // menu -> exit (no plan yet)
-
-    expect(ctx.inputCalls).toHaveLength(0);
-  });
 });
 
 describe("/plan <prompt>", () => {
