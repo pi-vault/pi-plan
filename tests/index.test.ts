@@ -623,7 +623,7 @@ describe("agent_end", () => {
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
   });
 
-  it("sends a display-only proposed-plan message when plan is detected", async () => {
+  it("does not send a proposed-plan message when plan is detected", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
     const ctx = createMockContext();
@@ -644,13 +644,7 @@ describe("agent_end", () => {
       ctx,
     );
 
-    const planMessage = mock.messages.find(
-      (m) => (m.message as any).customType === "proposed-plan",
-    );
-    expect(planMessage).toBeDefined();
-    expect((planMessage!.message as any).display).toBe(true);
-    expect((planMessage!.message as any).content).toContain("# The Plan");
-    expect(planMessage!.options).toEqual({ triggerTurn: false });
+    expect(mock.messages.some((m) => (m.message as any).customType === "proposed-plan")).toBe(false);
   });
 
   it("does nothing when no proposed plan in messages", async () => {
@@ -916,8 +910,11 @@ describe("plan menu actions", () => {
 
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
     expect(mock.userMessages).toHaveLength(1);
-    expect(mock.userMessages[0].content as string).toContain("Implement this proposed plan now");
-    expect(mock.userMessages[0].content as string).toContain("# My Plan");
+    expect(mock.userMessages[0].content).toBe(
+      "Plan mode is now disabled. Full tool access is restored. Implement this proposed plan now:\n\n# My Plan\n## Summary\nBuild the thing",
+    );
+    const persisted = mock.entries.filter((entry) => entry.customType === "plan-mode-state");
+    expect(persisted.at(-1)?.data).toMatchObject({ latestPlan: undefined, awaitingAction: false });
   });
 
   it("exit: exits plan mode without sending message", async () => {

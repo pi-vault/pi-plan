@@ -140,6 +140,8 @@ export default function createExtension(pi: ExtensionAPI): void {
         if (plan) await savePlanToFile(plan, ctx);
         doExit(ctx);
         if (plan) {
+          state = { ...state, latestPlan: undefined, awaitingAction: false };
+          persist();
           sendPlanModeMessage(
             `Plan mode is now disabled. Full tool access is restored. Implement this proposed plan now:\n\n${plan}`,
             ctx,
@@ -268,14 +270,6 @@ export default function createExtension(pi: ExtensionAPI): void {
     state = { ...state, latestPlan: plan, awaitingAction: true };
     persist();
     updateUi(ctx);
-    pi.sendMessage(
-      {
-        customType: PROPOSED_PLAN_MESSAGE_TYPE,
-        content: `**Proposed Plan**\n\n${plan}`,
-        display: true,
-      },
-      { triggerTurn: false },
-    );
     clearPendingMenu();
     pendingMenuTimer = setTimeout(
       () =>
