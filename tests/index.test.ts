@@ -641,7 +641,11 @@ describe("agent_end", () => {
       ctx,
     );
 
-    expect(mock.messages.some((m) => (m.message as any).customType === "proposed-plan")).toBe(false);
+    expect(
+      mock.messages.some(
+        (m) => (m.message as { customType?: unknown }).customType === "proposed-plan",
+      ),
+    ).toBe(false);
   });
 
   it("does nothing when no proposed plan in messages", async () => {

@@ -102,7 +102,9 @@ The current release behavior includes a few workflow improvements beyond the ori
 
 - Turns off plan mode.
 - Restores the tool set that was active before planning started.
-- Preserves the latest plan for the next normal-mode prompt only, then consumes it. To save it, exit and make your next prompt `Write the latest proposed plan to proposed-plan.md`.
+- Preserves the latest plan for the next normal-mode prompt only, then consumes it. To save it:
+  1. Select **Exit** or run `/plan:exit`.
+  2. On the next prompt, ask: `Write the latest proposed plan verbatim to docs/my-plan.md. Do not implement it.`
 - `/plan:exit` does not accept handoff text: `/plan:exit write the plan to proposed-plan.md` exits but does not send the write request. Re-entering plan mode before the next normal prompt discards the pending plan.
 
 ### `pi --plan`

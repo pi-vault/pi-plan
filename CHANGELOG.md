@@ -2,6 +2,18 @@
 
 All notable changes to `@pi-vault/pi-plan` are documented in this file.
 
+## Unreleased
+
+### Changed
+
+- Preserve the latest proposed plan as context for only the first normal-mode turn after exit.
+- Send the full proposed plan directly when choosing **Implement this plan**.
+
+### Removed
+
+- Remove exit-time plan file prompts and writes.
+- Remove the duplicate display-only proposed-plan timeline message.
+
 ## [0.3.0] - 2026-07-07
 
 ### Added
