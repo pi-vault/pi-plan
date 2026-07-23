@@ -596,6 +596,11 @@ describe("agent_end", () => {
     );
 
     expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
+    expect(
+      mock.messages.some(
+        (m) => (m.message as { customType?: unknown }).customType === "proposed-plan",
+      ),
+    ).toBe(false);
   });
 
   it("does nothing when plan mode is off", async () => {
@@ -618,34 +623,6 @@ describe("agent_end", () => {
     );
 
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
-  });
-
-  it("does not send a proposed-plan message when plan is detected", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext();
-    await mock.commands.get("plan")!.handler("", ctx.ctx);
-
-    await mock.fireEvent(
-      "agent_end",
-      {
-        type: "agent_end",
-        messages: [
-          {
-            role: "assistant",
-            content:
-              "<proposed_plan>\n# The Plan\n## Summary\nDo it\n</proposed_plan>",
-          },
-        ],
-      },
-      ctx,
-    );
-
-    expect(
-      mock.messages.some(
-        (m) => (m.message as { customType?: unknown }).customType === "proposed-plan",
-      ),
-    ).toBe(false);
   });
 
   it("does nothing when no proposed plan in messages", async () => {
@@ -914,6 +891,7 @@ describe("plan menu actions", () => {
     expect(mock.userMessages[0].content).toBe(
       "Plan mode is now disabled. Full tool access is restored. Implement this proposed plan now:\n\n# My Plan\n## Summary\nBuild the thing",
     );
+    expect(ctx.inputCalls).toHaveLength(0);
     const persisted = mock.entries.filter((entry) => entry.customType === "plan-mode-state");
     expect(persisted.at(-1)?.data).toMatchObject({ latestPlan: undefined, awaitingAction: false });
   });
@@ -952,10 +930,24 @@ describe("plan menu actions", () => {
 
     const handler = mock.commands.get("plan")!.handler;
     await handler("", ctx.ctx); // enter plan mode
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
     await handler("", ctx.ctx); // show menu, select exit
 
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
     expect(mock.userMessages).toHaveLength(0);
+    expect(ctx.inputCalls).toHaveLength(0);
   });
 
   it("stay: keeps plan mode active", async () => {
@@ -1000,63 +992,6 @@ describe("plan menu actions", () => {
     expect(ctx.notifications.some((n) => n.message.includes("# My Plan"))).toBe(true);
   });
 
-  it("implement: does not prompt before exiting", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext({
-      selectResponses: [PLAN_MENU_LABELS.implement],
-    });
-
-    const handler = mock.commands.get("plan")!.handler;
-    await handler("", ctx.ctx); // enter plan mode
-
-    await mock.fireEvent(
-      "agent_end",
-      {
-        type: "agent_end",
-        messages: [
-          {
-            role: "assistant",
-            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
-          },
-        ],
-      },
-      ctx,
-    );
-
-    await handler("", ctx.ctx); // menu -> implement
-
-    expect(ctx.inputCalls).toHaveLength(0);
-  });
-
-  it("exit: does not prompt before exiting when a plan exists", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext({
-      selectResponses: [PLAN_MENU_LABELS.exit],
-    });
-
-    const handler = mock.commands.get("plan")!.handler;
-    await handler("", ctx.ctx); // enter plan mode
-
-    await mock.fireEvent(
-      "agent_end",
-      {
-        type: "agent_end",
-        messages: [
-          {
-            role: "assistant",
-            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
-          },
-        ],
-      },
-      ctx,
-    );
-
-    await handler("", ctx.ctx); // menu -> exit
-
-    expect(ctx.inputCalls).toHaveLength(0);
-  });
 });
 
 describe("/plan <prompt>", () => {
