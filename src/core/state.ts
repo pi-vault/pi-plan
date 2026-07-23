@@ -12,14 +12,13 @@ export function createInitialState(): PlanModeState {
 }
 
 export function enterPlanMode(state: PlanModeState): PlanModeState {
-  return { ...state, enabled: true, awaitingAction: false };
+  return { ...state, enabled: true, latestPlan: undefined, awaitingAction: false };
 }
 
 export function exitPlanMode(state: PlanModeState): PlanModeState {
   return {
     ...state,
     enabled: false,
-    latestPlan: undefined,
     awaitingAction: false,
   };
 }
@@ -36,7 +35,7 @@ export function restoreState(entries: SessionEntry[]): PlanModeState {
   const enabled = entry.data.enabled ?? false;
   return {
     enabled,
-    latestPlan: enabled ? entry.data.latestPlan : undefined,
+    latestPlan: entry.data.latestPlan,
     awaitingAction: enabled ? (entry.data.awaitingAction ?? false) : false,
     selectedToolNames: entry.data.selectedToolNames,
   };

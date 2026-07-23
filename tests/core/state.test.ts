@@ -43,10 +43,15 @@ describe("createInitialState", () => {
 });
 
 describe("enterPlanMode", () => {
-  it("enables plan mode and clears awaitingAction", () => {
-    const state = createInitialState();
+  it("clears a pending plan and awaiting action", () => {
+    const state = {
+      ...createInitialState(),
+      latestPlan: "stale plan",
+      awaitingAction: true,
+    };
     const next = enterPlanMode(state);
     expect(next.enabled).toBe(true);
+    expect(next.latestPlan).toBeUndefined();
     expect(next.awaitingAction).toBe(false);
   });
 
@@ -61,7 +66,7 @@ describe("enterPlanMode", () => {
 });
 
 describe("exitPlanMode", () => {
-  it("disables plan mode and clears plan data", () => {
+  it("preserves the latest plan and clears awaiting action", () => {
     const state = {
       enabled: true,
       latestPlan: "some plan",
@@ -70,7 +75,7 @@ describe("exitPlanMode", () => {
     };
     const next = exitPlanMode(state);
     expect(next.enabled).toBe(false);
-    expect(next.latestPlan).toBeUndefined();
+    expect(next.latestPlan).toBe("some plan");
     expect(next.awaitingAction).toBe(false);
   });
 
@@ -101,7 +106,7 @@ describe("restoreState", () => {
     expect(state.enabled).toBe(false);
   });
 
-  it("clears plan data when restored as disabled", () => {
+  it("preserves an unconsumed plan when restored as disabled", () => {
     const entries = [
       customEntry("plan-mode-state", {
         enabled: false,
@@ -111,7 +116,7 @@ describe("restoreState", () => {
     ];
     const state = restoreState(entries);
     expect(state.enabled).toBe(false);
-    expect(state.latestPlan).toBeUndefined();
+    expect(state.latestPlan).toBe("stale plan");
     expect(state.awaitingAction).toBe(false);
   });
 
