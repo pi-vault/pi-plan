@@ -917,6 +917,33 @@ describe("plan menu actions", () => {
     expect(persisted.at(-1)?.data).toMatchObject({ latestPlan: undefined, awaitingAction: false });
   });
 
+  it("implement: queues the full plan as a follow-up when busy", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      isIdle: false,
+      selectResponses: [PLAN_MENU_LABELS.implement],
+    });
+    const plan = "# Queued Plan\n\n## Details\nKeep every line.";
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("", ctx.ctx);
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [{ role: "assistant", content: `<proposed_plan>\n${plan}\n</proposed_plan>` }],
+      },
+      ctx,
+    );
+    await handler("", ctx.ctx);
+
+    expect(mock.userMessages[0].content).toContain(plan);
+    expect(mock.userMessages[0].options).toEqual({ deliverAs: "followUp" });
+    const persisted = mock.entries.filter((entry) => entry.customType === "plan-mode-state");
+    expect(persisted.at(-1)?.data).toMatchObject({ latestPlan: undefined, awaitingAction: false });
+  });
+
   it("exit: exits plan mode without sending message", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
