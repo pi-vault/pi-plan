@@ -448,7 +448,7 @@ describe("before_agent_start", () => {
     expect((first as { systemPrompt: string }).systemPrompt).toContain("base prompt");
     expect((first as { systemPrompt: string }).systemPrompt).toContain("[PLAN HANDOFF]");
     expect((first as { systemPrompt: string }).systemPrompt).toContain(
-      "do not implement the plan unless asked",
+      "The latest proposed plan is available for this turn as context. Follow the current user request; do not implement the plan unless asked.",
     );
     expect((first as { systemPrompt: string }).systemPrompt).toContain("# Restored Plan");
 

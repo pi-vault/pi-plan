@@ -246,7 +246,7 @@ export default function createExtension(pi: ExtensionAPI): void {
       persist();
       updateUi(ctx);
       return {
-        systemPrompt: `${event.systemPrompt}\n\n[PLAN HANDOFF]\ndo not implement the plan unless asked\n\n${plan}`,
+        systemPrompt: `${event.systemPrompt}\n\n[PLAN HANDOFF]\nThe latest proposed plan is available for this turn as context. Follow the current user request; do not implement the plan unless asked.\n\n${plan}`,
       };
     }
     pi.setActiveTools(planModeToolNamesWithSelections(state.selectedToolNames));
