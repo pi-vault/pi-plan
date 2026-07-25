@@ -128,6 +128,7 @@ export function createMockContext(options?: {
   entries?: SessionEntry[];
   hasUI?: boolean;
   isIdle?: boolean;
+  cwd?: string;
   selectResponses?: string[];
   customResult?: unknown;
 }): MockContext {
@@ -186,6 +187,7 @@ export function createMockContext(options?: {
       },
       hasUI: options?.hasUI ?? true,
       isIdle: () => options?.isIdle ?? true,
+      cwd: options?.cwd ?? process.cwd(),
       sessionManager: {
         getEntries: () => sessionEntries,
       },

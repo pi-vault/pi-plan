@@ -4,59 +4,104 @@ import { PLAN_MENU_LABELS, showPlanMenu, showPlanReadyMenu } from "../../src/tui
 import { createMockContext } from "../helpers.ts";
 
 describe("showPlanReadyMenu", () => {
+  it("includes Save plan label", () => {
+    expect(PLAN_MENU_LABELS.save).toBe("Save plan");
+  });
+
   it("returns implement when user selects implement label", async () => {
     const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.implement] });
-    const action = await showPlanReadyMenu(ctx.ctx);
+    const action = await showPlanReadyMenu(ctx.ctx, { latestPlan: "# Plan" });
     expect(action).toBe("implement");
   });
 
   it("returns stay when user selects stay label", async () => {
     const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
-    const action = await showPlanReadyMenu(ctx.ctx);
+    const action = await showPlanReadyMenu(ctx.ctx, { latestPlan: "# Plan" });
     expect(action).toBe("stay");
   });
 
   it("returns exit when user selects exit label", async () => {
     const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.exit] });
-    const action = await showPlanReadyMenu(ctx.ctx);
+    const action = await showPlanReadyMenu(ctx.ctx, { latestPlan: "# Plan" });
     expect(action).toBe("exit");
   });
 
   it("defaults to stay when selection is cancelled (undefined)", async () => {
     const ctx = createMockContext({ selectResponses: [] });
-    const action = await showPlanReadyMenu(ctx.ctx);
+    const action = await showPlanReadyMenu(ctx.ctx, { latestPlan: "# Plan" });
     expect(action).toBe("stay");
   });
 
-  it("calls ctx.ui.select with three options", async () => {
+  it("shows Implement, Save plan, Stay, Exit in order when plan exists and idle", async () => {
     const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
-    await showPlanReadyMenu(ctx.ctx);
+    await showPlanReadyMenu(ctx.ctx, { latestPlan: "# Plan" });
     expect(ctx.selectCalls).toHaveLength(1);
-    expect(ctx.selectCalls[0].options).toHaveLength(3);
+    expect(ctx.selectCalls[0].options).toEqual([
+      PLAN_MENU_LABELS.implement,
+      PLAN_MENU_LABELS.save,
+      PLAN_MENU_LABELS.stay,
+      PLAN_MENU_LABELS.exit,
+    ]);
+  });
+
+  it("hides Save plan when no plan exists", async () => {
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
+    await showPlanReadyMenu(ctx.ctx, createInitialState());
+    expect(ctx.selectCalls[0].options).toEqual([
+      PLAN_MENU_LABELS.implement,
+      PLAN_MENU_LABELS.stay,
+      PLAN_MENU_LABELS.exit,
+    ]);
+  });
+
+  it("hides Save plan when context is busy", async () => {
+    const ctx = createMockContext({ isIdle: false, selectResponses: [PLAN_MENU_LABELS.stay] });
+    await showPlanReadyMenu(ctx.ctx, { latestPlan: "# Plan" });
+    expect(ctx.selectCalls[0].options).toEqual([
+      PLAN_MENU_LABELS.implement,
+      PLAN_MENU_LABELS.stay,
+      PLAN_MENU_LABELS.exit,
+    ]);
   });
 });
 
 describe("showPlanMenu", () => {
-  it("includes show-plan and implement options when plan exists", async () => {
+  it("includes show-plan, implement, and Save plan options in order when plan exists and idle", async () => {
     const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
     const state = { ...createInitialState(), enabled: true, latestPlan: "# My Plan" };
     await showPlanMenu(ctx.ctx, state);
-    const options = ctx.selectCalls[0].options;
-    expect(options).toContain(PLAN_MENU_LABELS["show-plan"]);
-    expect(options).toContain(PLAN_MENU_LABELS.implement);
-    expect(options).toContain(PLAN_MENU_LABELS.stay);
-    expect(options).toContain(PLAN_MENU_LABELS.exit);
+    expect(ctx.selectCalls[0].options).toEqual([
+      PLAN_MENU_LABELS["show-plan"],
+      PLAN_MENU_LABELS.implement,
+      PLAN_MENU_LABELS.save,
+      PLAN_MENU_LABELS.tools,
+      PLAN_MENU_LABELS.stay,
+      PLAN_MENU_LABELS.exit,
+    ]);
   });
 
-  it("excludes show-plan and implement options when no plan exists", async () => {
+  it("excludes show-plan, implement, and Save plan options when no plan exists", async () => {
     const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
     const state = { ...createInitialState(), enabled: true };
     await showPlanMenu(ctx.ctx, state);
-    const options = ctx.selectCalls[0].options;
-    expect(options).not.toContain(PLAN_MENU_LABELS["show-plan"]);
-    expect(options).not.toContain(PLAN_MENU_LABELS.implement);
-    expect(options).toContain(PLAN_MENU_LABELS.stay);
-    expect(options).toContain(PLAN_MENU_LABELS.exit);
+    expect(ctx.selectCalls[0].options).toEqual([
+      PLAN_MENU_LABELS.tools,
+      PLAN_MENU_LABELS.stay,
+      PLAN_MENU_LABELS.exit,
+    ]);
+  });
+
+  it("hides Save plan when plan exists but context is busy", async () => {
+    const ctx = createMockContext({ isIdle: false, selectResponses: [PLAN_MENU_LABELS.stay] });
+    const state = { ...createInitialState(), enabled: true, latestPlan: "# My Plan" };
+    await showPlanMenu(ctx.ctx, state);
+    expect(ctx.selectCalls[0].options).toEqual([
+      PLAN_MENU_LABELS["show-plan"],
+      PLAN_MENU_LABELS.implement,
+      PLAN_MENU_LABELS.tools,
+      PLAN_MENU_LABELS.stay,
+      PLAN_MENU_LABELS.exit,
+    ]);
   });
 
   it("returns selected action", async () => {
