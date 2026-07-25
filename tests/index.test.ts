@@ -1794,7 +1794,7 @@ describe("plan save lifecycle", () => {
     expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
   });
 
-  it("keeps the captured plan for the save turn prompt and suppresses optional tools", async () => {
+  it("uses the narrow save-turn prompt and suppresses optional tools", async () => {
     const mock = createMockPi({
       allTools: [
         { name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } },
@@ -1831,7 +1831,7 @@ describe("plan save lifecycle", () => {
 
     expect((result as { systemPrompt: string }).systemPrompt).toContain("[PLAN SAVE TURN]");
     expect((result as { systemPrompt: string }).systemPrompt).toContain("[PLAN MODE ACTIVE]");
-    expect((result as { systemPrompt: string }).systemPrompt).toContain("# Saved Plan");
+    expect((result as { systemPrompt: string }).systemPrompt).not.toContain("# Saved Plan");
     expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
     expect(mock.activeTools).toEqual(expect.arrayContaining([...SAFE_BUILTIN_PLAN_TOOLS, "write"]));
     expect(mock.activeTools).not.toContain("my-search");
@@ -1878,8 +1878,10 @@ describe("plan save lifecycle", () => {
       ctx,
     );
 
-    expect((result as { systemPrompt: string }).systemPrompt).toContain("# Original Plan");
+    expect((result as { systemPrompt: string }).systemPrompt).not.toContain("# Original Plan");
     expect((result as { systemPrompt: string }).systemPrompt).not.toContain("# Replacement Plan");
+    const persistedEntries = mock.entries.filter((entry) => entry.customType === "plan-mode-state");
+    expect(persistedEntries.at(-1)?.data).toMatchObject({ latestPlan: "# Original Plan" });
     expect(ctx.selectCalls).toHaveLength(1);
   });
 

@@ -369,7 +369,7 @@ export default function createExtension(pi: ExtensionAPI): void {
       activatePlanSaveTools();
       updateUi(ctx);
       return {
-        systemPrompt: `${event.systemPrompt}\n\n${buildPlanModePrompt()}\n\n[PLAN SAVE TURN]\nUse only one approved write call for the exact captured plan. Do not edit, implement, or modify any other file.\n\n${planToSave}`,
+        systemPrompt: `${event.systemPrompt}\n\n${buildPlanModePrompt()}\n\n[PLAN SAVE TURN]\nUse only one approved write call for the exact captured plan. Do not edit, implement, or modify any other file.`,
       };
     }
 
