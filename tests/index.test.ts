@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
+import { SAFE_BUILTIN_PLAN_TOOLS } from "../src/shared/constants.ts";
 import { PLAN_MENU_LABELS } from "../src/tui/menus.ts";
 import { createMockContext, createMockPi } from "./helpers.ts";
 
@@ -56,6 +57,55 @@ describe("/plan command", () => {
 
     expect(ctx.statuses.get("pi-plan")).toBe("plan active");
     expect(ctx.selectCalls).toHaveLength(1);
+  });
+
+  it("warns and does nothing for stale Save plan menu action without a latest plan", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.save] });
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("", ctx.ctx); // on
+    await handler("", ctx.ctx); // menu
+
+    expect(mock.userMessages).toHaveLength(0);
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+    expect(
+      ctx.notifications.some(
+        (n) => n.type === "warning" && n.message.includes("latest plan"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns and does nothing for stale Save plan menu action while busy", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({ isIdle: false, selectResponses: [PLAN_MENU_LABELS.save] });
+
+    const handler = mock.commands.get("plan")!.handler;
+    await handler("", ctx.ctx); // on
+
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          { role: "assistant", content: "<proposed_plan>\n# Plan\n</proposed_plan>" },
+        ],
+      },
+      ctx,
+    );
+
+    await handler("", ctx.ctx); // stale save action
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mock.userMessages).toHaveLength(0);
+    expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
+    expect(
+      ctx.notifications.some((n) => n.type === "warning" && n.message.includes("busy")),
+    ).toBe(
+      true,
+    );
   });
 
   it("treats any args as a prompt", async () => {
@@ -1256,5 +1306,249 @@ describe("/plan:tools command", () => {
     const lastEntry = persistedEntries[persistedEntries.length - 1];
     const persistedState = lastEntry.data as { selectedToolNames?: string[] };
     expect(persistedState.selectedToolNames).toContain("my-tool");
+  });
+});
+
+describe("plan save lifecycle", () => {
+  it("sends the full captured plan and restricts tools for a save turn", async () => {
+    const mock = createMockPi({
+      allTools: [
+        { name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } },
+      ],
+    });
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      cwd: "/repo",
+      customResult: ["my-search"],
+      selectResponses: [PLAN_MENU_LABELS.save],
+    });
+
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    await mock.commands.get("plan:tools")!.handler("", ctx.ctx);
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# Ship It\n\nDetails\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
+
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    expect(mock.userMessages).toHaveLength(1);
+    expect(mock.userMessages[0].content).toContain("# Ship It\n\nDetails");
+    expect(mock.userMessages[0].content).toContain("choose a new lowercase .md file");
+    expect(mock.userMessages[0].content).toContain("/repo");
+    expect(mock.userMessages[0].options).toBeUndefined();
+    expect(mock.activeTools).toEqual(expect.arrayContaining([...SAFE_BUILTIN_PLAN_TOOLS, "write"]));
+    expect(mock.activeTools).not.toContain("my-search");
+    expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
+  });
+
+  it("keeps the captured plan for the save turn prompt and suppresses optional tools", async () => {
+    const mock = createMockPi({
+      allTools: [
+        { name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } },
+      ],
+    });
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      customResult: ["my-search"],
+      selectResponses: [PLAN_MENU_LABELS.save],
+    });
+
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    await mock.commands.get("plan:tools")!.handler("", ctx.ctx);
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# Saved Plan\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    const result = await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "base prompt" },
+      ctx,
+    );
+
+    expect((result as { systemPrompt: string }).systemPrompt).toContain("[PLAN SAVE TURN]");
+    expect((result as { systemPrompt: string }).systemPrompt).toContain("[PLAN MODE ACTIVE]");
+    expect((result as { systemPrompt: string }).systemPrompt).toContain("# Saved Plan");
+    expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
+    expect(mock.activeTools).toEqual(expect.arrayContaining([...SAFE_BUILTIN_PLAN_TOOLS, "write"]));
+    expect(mock.activeTools).not.toContain("my-search");
+  });
+
+  it("ignores agent_end plan extraction while a save turn is active", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.save] });
+
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# Original Plan\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# Replacement Plan\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
+
+    const result = await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "base prompt" },
+      ctx,
+    );
+
+    expect((result as { systemPrompt: string }).systemPrompt).toContain("# Original Plan");
+    expect((result as { systemPrompt: string }).systemPrompt).not.toContain("# Replacement Plan");
+    expect(ctx.selectCalls).toHaveLength(1);
+  });
+
+  it("warns and restores ordinary plan tools when the save turn settles without success", async () => {
+    const mock = createMockPi({
+      allTools: [
+        { name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } },
+      ],
+    });
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      customResult: ["my-search"],
+      selectResponses: [PLAN_MENU_LABELS.save],
+    });
+
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    await mock.commands.get("plan:tools")!.handler("", ctx.ctx);
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [
+          {
+            role: "assistant",
+            content: "<proposed_plan>\n# Save Me\n</proposed_plan>",
+          },
+        ],
+      },
+      ctx,
+    );
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    await mock.fireEvent("agent_settled", { type: "agent_settled" }, ctx);
+
+    expect(mock.activeTools).toContain("my-search");
+    expect(mock.activeTools).not.toContain("write");
+    expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
+    expect(
+      ctx.notifications.some((n) => n.type === "warning" && n.message.includes("Save plan failed")),
+    ).toBe(true);
+    const persistedEntries = mock.entries.filter((entry) => entry.customType === "plan-mode-state");
+    expect(persistedEntries.at(-1)?.data).toMatchObject({
+      latestPlan: "# Save Me",
+      awaitingAction: true,
+    });
+  });
+
+  it("restores full previous tools and clears save-turn state on exit", async () => {
+    const mock = createMockPi({
+      activeTools: ["read", "bash", "edit", "write", "custom-before"],
+      allTools: [
+        { name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } },
+      ],
+    });
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      customResult: ["my-search"],
+      selectResponses: [PLAN_MENU_LABELS.save],
+    });
+
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    await mock.commands.get("plan:tools")!.handler("", ctx.ctx);
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [{ role: "assistant", content: "<proposed_plan>\n# Save Me\n</proposed_plan>" }],
+      },
+      ctx,
+    );
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    await mock.commands.get("plan:exit")!.handler("", ctx.ctx);
+
+    expect(mock.activeTools).toEqual(expect.arrayContaining(["edit", "write", "custom-before"]));
+    const result = await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "base prompt" },
+      ctx,
+    );
+    expect((result as { systemPrompt: string }).systemPrompt).toContain("[PLAN HANDOFF]");
+    expect((result as { systemPrompt: string }).systemPrompt).not.toContain("[PLAN SAVE TURN]");
+  });
+
+  it("restores ordinary plan tools and clears UI on session shutdown during save turn", async () => {
+    const mock = createMockPi({
+      allTools: [
+        { name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } },
+      ],
+    });
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      customResult: ["my-search"],
+      selectResponses: [PLAN_MENU_LABELS.save],
+    });
+
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    await mock.commands.get("plan:tools")!.handler("", ctx.ctx);
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [{ role: "assistant", content: "<proposed_plan>\n# Save Me\n</proposed_plan>" }],
+      },
+      ctx,
+    );
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    await mock.fireEvent("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
+
+    expect(mock.activeTools).toEqual(expect.arrayContaining([...SAFE_BUILTIN_PLAN_TOOLS, "my-search"]));
+    expect(mock.activeTools).not.toContain("write");
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
   });
 });

@@ -20,6 +20,7 @@ import {
 import {
   BLOCKED_BUILTIN_TOOLS,
   PROPOSED_PLAN_MESSAGE_TYPE,
+  SAFE_BUILTIN_PLAN_TOOLS,
   STATE_ENTRY_TYPE,
   STATUS_KEY,
   WIDGET_KEY,
@@ -34,6 +35,9 @@ export default function createExtension(pi: ExtensionAPI): void {
   let state: PlanModeState = createInitialState();
   let previousTools: string[] | undefined;
   let pendingMenuTimer: ReturnType<typeof setTimeout> | undefined;
+  let planToSave: string | undefined;
+  let planWriteCallId: string | undefined;
+  let planSaveSucceeded = false;
 
   pi.registerFlag("plan", {
     description: "Start in plan mode (read-only exploration)",
@@ -74,6 +78,20 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
   }
 
+  function clearPlanSaveState(): void {
+    planToSave = undefined;
+    planWriteCallId = undefined;
+    planSaveSucceeded = false;
+  }
+
+  function activatePlanSaveTools(): void {
+    const toolNames = [...SAFE_BUILTIN_PLAN_TOOLS];
+    if (planWriteCallId === undefined && !planSaveSucceeded) {
+      toolNames.push("write");
+    }
+    pi.setActiveTools(toolNames);
+  }
+
   function doEnter(ctx: ExtensionContext): void {
     state = enterPlanMode(state);
     activatePlanModeTools();
@@ -83,6 +101,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   function doExit(ctx: ExtensionContext): void {
     clearPendingMenu();
+    clearPlanSaveState();
     state = exitPlanMode(state);
     restoreTools();
     persist();
@@ -148,6 +167,24 @@ export default function createExtension(pi: ExtensionAPI): void {
         ctx.ui.notify("Implementing plan. Full access restored.", "info");
         break;
       }
+      case "save":
+        if (!state.latestPlan) {
+          ctx.ui.notify("No latest plan is available to save.", "warning");
+          break;
+        }
+        if (!ctx.isIdle()) {
+          ctx.ui.notify("Save plan is unavailable while the agent is busy.", "warning");
+          break;
+        }
+        planToSave = state.latestPlan;
+        planWriteCallId = undefined;
+        planSaveSucceeded = false;
+        activatePlanSaveTools();
+        sendPlanModeMessage(
+          `Save the current proposed plan. choose a new lowercase .md file in an existing directory within ${ctx.cwd}. Write exactly the plan below to that file. Make no other changes.\n\n${planToSave}`,
+          ctx,
+        );
+        break;
       case "exit":
         doExit(ctx);
         ctx.ui.notify("Plan mode disabled.", "info");
@@ -237,6 +274,14 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
+    if (state.enabled && planToSave !== undefined) {
+      activatePlanSaveTools();
+      updateUi(ctx);
+      return {
+        systemPrompt: `${event.systemPrompt}\n\n${buildPlanModePrompt()}\n\n[PLAN SAVE TURN]\nUse only one approved write call for the exact captured plan. Do not edit, implement, or modify any other file.\n\n${planToSave}`,
+      };
+    }
+
     if (!state.enabled) {
       const plan = state.latestPlan;
       if (!plan) return;
@@ -257,6 +302,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   pi.on("agent_end", async (event, ctx) => {
     if (!state.enabled) return;
+    if (planToSave !== undefined) return;
     const messages = (event.messages as unknown as Array<Record<string, unknown>>) ?? [];
     const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
     if (!lastAssistant) return;
@@ -269,11 +315,24 @@ export default function createExtension(pi: ExtensionAPI): void {
     clearPendingMenu();
     pendingMenuTimer = setTimeout(
       () =>
-        void showPlanReadyMenu(ctx)
+        void showPlanReadyMenu(ctx, state)
           .then((action) => handleMenuAction(action, ctx))
           .catch(() => {}),
       0,
     );
+  });
+
+  pi.on("agent_settled", async (_event, ctx) => {
+    if (planToSave === undefined) return;
+    const didSave = planSaveSucceeded;
+    clearPlanSaveState();
+    if (state.enabled) {
+      pi.setActiveTools(planModeToolNamesWithSelections(state.selectedToolNames));
+      updateUi(ctx);
+    }
+    if (!didSave) {
+      ctx.ui.notify("Save plan failed or was not completed.", "warning");
+    }
   });
 
   pi.on("context", async (event) => {
@@ -310,6 +369,10 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   pi.on("session_shutdown", async (_event, ctx) => {
     clearPendingMenu();
+    if (planToSave !== undefined && state.enabled) {
+      pi.setActiveTools(planModeToolNamesWithSelections(state.selectedToolNames));
+    }
+    clearPlanSaveState();
     persist();
     clearUi(ctx);
   });

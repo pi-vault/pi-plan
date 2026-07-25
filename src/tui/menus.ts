@@ -1,10 +1,17 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { PlanModeState } from "../shared/types.ts";
 
-export type PlanMenuAction = "implement" | "stay" | "exit" | "show-plan" | "tools";
+export type PlanMenuAction =
+  | "implement"
+  | "save"
+  | "stay"
+  | "exit"
+  | "show-plan"
+  | "tools";
 
 export const PLAN_MENU_LABELS: Record<PlanMenuAction, string> = {
   implement: "Implement this plan",
+  save: "Save plan",
   stay: "Stay in Plan mode",
   exit: "Exit Plan mode",
   "show-plan": "Show latest proposed plan",
@@ -20,12 +27,21 @@ function resolveAction(choice: string | undefined): PlanMenuAction {
   return LABEL_TO_ACTION.get(choice) ?? "stay";
 }
 
-export async function showPlanReadyMenu(ctx: ExtensionContext): Promise<PlanMenuAction> {
-  const choice = await ctx.ui.select("Plan ready", [
-    PLAN_MENU_LABELS.implement,
-    PLAN_MENU_LABELS.stay,
-    PLAN_MENU_LABELS.exit,
-  ]);
+function shouldShowSave(ctx: ExtensionContext, state: Pick<PlanModeState, "latestPlan">): boolean {
+  return Boolean(state.latestPlan) && ctx.isIdle();
+}
+
+export async function showPlanReadyMenu(
+  ctx: ExtensionContext,
+  state: Pick<PlanModeState, "latestPlan">,
+): Promise<PlanMenuAction> {
+  const options = [PLAN_MENU_LABELS.implement];
+  if (shouldShowSave(ctx, state)) {
+    options.push(PLAN_MENU_LABELS.save);
+  }
+  options.push(PLAN_MENU_LABELS.stay, PLAN_MENU_LABELS.exit);
+
+  const choice = await ctx.ui.select("Plan ready", options);
   return resolveAction(choice);
 }
 
@@ -38,6 +54,9 @@ export async function showPlanMenu(
   if (state.latestPlan) {
     options.push(PLAN_MENU_LABELS["show-plan"]);
     options.push(PLAN_MENU_LABELS.implement);
+    if (shouldShowSave(ctx, state)) {
+      options.push(PLAN_MENU_LABELS.save);
+    }
   }
 
   options.push(PLAN_MENU_LABELS.tools);
