@@ -27,16 +27,12 @@ function resolveAction(choice: string | undefined): PlanMenuAction {
   return LABEL_TO_ACTION.get(choice) ?? "stay";
 }
 
-function shouldShowSave(ctx: ExtensionContext, state: Pick<PlanModeState, "latestPlan">): boolean {
-  return Boolean(state.latestPlan) && ctx.isIdle();
-}
-
 export async function showPlanReadyMenu(
   ctx: ExtensionContext,
   state: Pick<PlanModeState, "latestPlan">,
 ): Promise<PlanMenuAction> {
   const options = [PLAN_MENU_LABELS.implement];
-  if (shouldShowSave(ctx, state)) {
+  if (state.latestPlan && ctx.isIdle()) {
     options.push(PLAN_MENU_LABELS.save);
   }
   options.push(PLAN_MENU_LABELS.stay, PLAN_MENU_LABELS.exit);
@@ -54,7 +50,7 @@ export async function showPlanMenu(
   if (state.latestPlan) {
     options.push(PLAN_MENU_LABELS["show-plan"]);
     options.push(PLAN_MENU_LABELS.implement);
-    if (shouldShowSave(ctx, state)) {
+    if (ctx.isIdle()) {
       options.push(PLAN_MENU_LABELS.save);
     }
   }

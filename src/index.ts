@@ -182,9 +182,8 @@ export default function createExtension(pi: ExtensionAPI): void {
           ctx.ui.notify("Save plan is unavailable while the agent is busy.", "warning");
           break;
         }
+        clearPlanSaveState();
         planToSave = state.latestPlan;
-        planWriteCallId = undefined;
-        planSaveSucceeded = false;
         activatePlanSaveTools();
         sendPlanModeMessage(
           `Save the current proposed plan. choose a new lowercase .md file in an existing directory within ${ctx.cwd}. Write exactly the plan below to that file. Make no other changes.\n\n${planToSave}`,
@@ -351,23 +350,16 @@ export default function createExtension(pi: ExtensionAPI): void {
     if (event.toolName !== "write" || event.toolCallId !== planWriteCallId) return;
 
     planWriteCallId = undefined;
-    if (event.isError === false) {
-      planSaveSucceeded = true;
-      if (state.enabled && planToSave !== undefined) {
-        activatePlanSaveTools();
-      }
-      return;
-    }
-
-    if (state.enabled && planToSave !== undefined) {
+    if (event.isError) {
       activatePlanSaveTools();
+    } else {
+      planSaveSucceeded = true;
     }
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
     if (state.enabled && planToSave !== undefined) {
       activatePlanSaveTools();
-      updateUi(ctx);
       return {
         systemPrompt: `${event.systemPrompt}\n\n${buildPlanModePrompt()}\n\n[PLAN SAVE TURN]\nUse only one approved write call for the exact captured plan. Do not edit, implement, or modify any other file.`,
       };
@@ -419,7 +411,6 @@ export default function createExtension(pi: ExtensionAPI): void {
     clearPlanSaveState();
     if (state.enabled) {
       pi.setActiveTools(planModeToolNamesWithSelections(state.selectedToolNames));
-      updateUi(ctx);
     }
     if (!didSave) {
       ctx.ui.notify("Save plan failed or was not completed.", "warning");

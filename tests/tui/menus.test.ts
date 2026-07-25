@@ -10,46 +10,31 @@ describe("showPlanReadyMenu", () => {
 
   it("returns implement when user selects implement label", async () => {
     const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.implement] });
-    const action = await showPlanReadyMenu(ctx.ctx, {
-      ...createInitialState(),
-      latestPlan: "# Plan",
-    });
+    const action = await showPlanReadyMenu(ctx.ctx, { latestPlan: "# Plan" });
     expect(action).toBe("implement");
   });
 
   it("returns stay when user selects stay label", async () => {
     const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
-    const action = await showPlanReadyMenu(ctx.ctx, {
-      ...createInitialState(),
-      latestPlan: "# Plan",
-    });
+    const action = await showPlanReadyMenu(ctx.ctx, { latestPlan: "# Plan" });
     expect(action).toBe("stay");
   });
 
   it("returns exit when user selects exit label", async () => {
     const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.exit] });
-    const action = await showPlanReadyMenu(ctx.ctx, {
-      ...createInitialState(),
-      latestPlan: "# Plan",
-    });
+    const action = await showPlanReadyMenu(ctx.ctx, { latestPlan: "# Plan" });
     expect(action).toBe("exit");
   });
 
   it("defaults to stay when selection is cancelled (undefined)", async () => {
     const ctx = createMockContext({ selectResponses: [] });
-    const action = await showPlanReadyMenu(ctx.ctx, {
-      ...createInitialState(),
-      latestPlan: "# Plan",
-    });
+    const action = await showPlanReadyMenu(ctx.ctx, { latestPlan: "# Plan" });
     expect(action).toBe("stay");
   });
 
   it("shows Implement, Save plan, Stay, Exit in order when plan exists and idle", async () => {
     const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.stay] });
-    await showPlanReadyMenu(ctx.ctx, {
-      ...createInitialState(),
-      latestPlan: "# Plan",
-    });
+    await showPlanReadyMenu(ctx.ctx, { latestPlan: "# Plan" });
     expect(ctx.selectCalls).toHaveLength(1);
     expect(ctx.selectCalls[0].options).toEqual([
       PLAN_MENU_LABELS.implement,
@@ -71,10 +56,7 @@ describe("showPlanReadyMenu", () => {
 
   it("hides Save plan when context is busy", async () => {
     const ctx = createMockContext({ isIdle: false, selectResponses: [PLAN_MENU_LABELS.stay] });
-    await showPlanReadyMenu(ctx.ctx, {
-      ...createInitialState(),
-      latestPlan: "# Plan",
-    });
+    await showPlanReadyMenu(ctx.ctx, { latestPlan: "# Plan" });
     expect(ctx.selectCalls[0].options).toEqual([
       PLAN_MENU_LABELS.implement,
       PLAN_MENU_LABELS.stay,
