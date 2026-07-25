@@ -378,7 +378,7 @@ describe("write save preflight", () => {
         type: "tool_call",
         toolCallId: "write-1",
         toolName: "write",
-        input: { path: "docs/plan.md", content: test.plan },
+        input: { path: "2026-07-25-plan.md", content: test.plan },
       },
       test.ctx,
     );
@@ -1785,9 +1785,10 @@ describe("plan save lifecycle", () => {
     await mock.commands.get("plan")!.handler("", ctx.ctx);
 
     expect(mock.userMessages).toHaveLength(1);
-    expect(mock.userMessages[0].content).toContain("# Ship It\n\nDetails");
-    expect(mock.userMessages[0].content).toContain("choose a new lowercase .md file");
-    expect(mock.userMessages[0].content).toContain("/repo");
+    const saveMessage = mock.userMessages[0].content;
+    expect(saveMessage).toBe(
+      "Save the current proposed plan. Choose a new lowercase .md filename in the workspace root /repo. Prefix the filename with today's date followed by a hyphen (YYYY-MM-DD-); use date +%F if needed. Pass only the filename as a relative workspace path; do not use an absolute path or a subdirectory. Write exactly the plan below to that file. Do not add leading or trailing whitespace, including a trailing newline. Make no other changes.\n\n# Ship It\n\nDetails",
+    );
     expect(mock.userMessages[0].options).toBeUndefined();
     expect(mock.activeTools).toEqual(expect.arrayContaining([...SAFE_BUILTIN_PLAN_TOOLS, "write"]));
     expect(mock.activeTools).not.toContain("my-search");

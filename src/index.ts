@@ -186,7 +186,7 @@ export default function createExtension(pi: ExtensionAPI): void {
         planToSave = state.latestPlan;
         activatePlanSaveTools();
         sendPlanModeMessage(
-          `Save the current proposed plan. choose a new lowercase .md file in an existing directory within ${ctx.cwd}. Write exactly the plan below to that file. Make no other changes.\n\n${planToSave}`,
+          `Save the current proposed plan. Choose a new lowercase .md filename in the workspace root ${ctx.cwd}. Prefix the filename with today's date followed by a hyphen (YYYY-MM-DD-); use date +%F if needed. Pass only the filename as a relative workspace path; do not use an absolute path or a subdirectory. Write exactly the plan below to that file. Do not add leading or trailing whitespace, including a trailing newline. Make no other changes.\n\n${planToSave}`,
           ctx,
         );
         break;
