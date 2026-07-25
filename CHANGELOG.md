@@ -4,8 +4,11 @@ All notable changes to `@pi-vault/pi-plan` are documented in this file.
 
 ## Unreleased
 
+Pi 0.82.0 or newer is now required.
+
 ### Changed
 
+- Add an idle-only **Save plan** action that keeps Plan mode active, asks the agent to choose a new lowercase `.md` filename inside the workspace, and grants built-in `write` for that save turn only.
 - Preserve the latest proposed plan as context for only the first normal-mode turn after exit.
 - Send the full proposed plan directly when choosing **Implement this plan**.
 

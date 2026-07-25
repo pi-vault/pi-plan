@@ -1,4 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { lstatSync, realpathSync } from "node:fs";
+import { dirname, relative, resolve, sep } from "node:path";
 import {
   extractProposedPlan,
   filterPlanModeMessages,
@@ -90,6 +92,10 @@ export default function createExtension(pi: ExtensionAPI): void {
       toolNames.push("write");
     }
     pi.setActiveTools(toolNames);
+  }
+
+  function blockPlanSave(reason: string): { block: true; reason: string } {
+    return { block: true, reason };
   }
 
   function doEnter(ctx: ExtensionContext): void {
@@ -251,8 +257,76 @@ export default function createExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.on("tool_call", async (event) => {
+  pi.on("tool_call", async (event, ctx) => {
     if (!state.enabled) return;
+
+    if (event.toolName === "write") {
+      if (planToSave === undefined || planWriteCallId !== undefined || planSaveSucceeded) {
+        return blockPlanSave("Plan mode blocks 'write'. Exit plan mode first with /plan:exit.");
+      }
+
+      const input =
+        typeof event.input === "object" && event.input !== null
+          ? (event.input as Record<string, unknown>)
+          : undefined;
+      if (input === undefined) {
+        return blockPlanSave("Save plan requires an input object with path and content.");
+      }
+
+      const content = input.content;
+      if (typeof content !== "string" || content !== planToSave) {
+        return blockPlanSave("Save plan requires the exact captured plan content.");
+      }
+
+      const filePath = typeof input.path === "string" ? input.path : undefined;
+      if (filePath === undefined) {
+        return blockPlanSave("Save plan requires a string file path.");
+      }
+
+      if (
+        filePath.startsWith("/") ||
+        filePath.startsWith("~") ||
+        filePath.startsWith("@") ||
+        filePath.startsWith("file:") ||
+        /[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/u.test(filePath) ||
+        filePath.split("/").includes("..")
+      ) {
+        return blockPlanSave("Save plan path must be a normal relative workspace path.");
+      }
+
+      if (!/^[a-z0-9_./-]+\.md$/.test(filePath)) {
+        return blockPlanSave("Save plan path must be a lowercase .md file.");
+      }
+
+      try {
+        const workspaceRoot = realpathSync(ctx.cwd);
+        const targetPath = resolve(workspaceRoot, filePath);
+        const parentPath = dirname(targetPath);
+        const parentRealPath = realpathSync(parentPath);
+        const parentStats = lstatSync(parentRealPath, { throwIfNoEntry: false });
+        if (!parentStats?.isDirectory()) {
+          return blockPlanSave("Save plan parent directory must already exist.");
+        }
+
+        const parentRelative = relative(workspaceRoot, parentRealPath);
+        if (parentRelative === ".." || parentRelative.startsWith(`..${sep}`)) {
+          return blockPlanSave("Save plan path must stay inside the workspace.");
+        }
+
+        const targetStats = lstatSync(targetPath, { throwIfNoEntry: false });
+        // ponytail: preflight existence check is not atomic; use an exclusive-create save tool if concurrent no-clobber becomes required.
+        if (targetStats !== undefined) {
+          return blockPlanSave("Save plan target must not already exist.");
+        }
+      } catch {
+        return blockPlanSave("Save plan path must be an existing directory inside the workspace.");
+      }
+
+      Object.freeze(input);
+      planWriteCallId = event.toolCallId;
+      activatePlanSaveTools();
+      return;
+    }
 
     if (BLOCKED_BUILTIN_TOOLS.has(event.toolName)) {
       return {
@@ -270,6 +344,23 @@ export default function createExtension(pi: ExtensionAPI): void {
           reason: `Plan mode blocks mutating or non-allowlisted bash commands.\nCommand: ${command}`,
         };
       }
+    }
+  });
+
+  pi.on("tool_execution_end", async (event) => {
+    if (event.toolName !== "write" || event.toolCallId !== planWriteCallId) return;
+
+    planWriteCallId = undefined;
+    if (event.isError === false) {
+      planSaveSucceeded = true;
+      if (state.enabled && planToSave !== undefined) {
+        activatePlanSaveTools();
+      }
+      return;
+    }
+
+    if (state.enabled && planToSave !== undefined) {
+      activatePlanSaveTools();
     }
   });
 

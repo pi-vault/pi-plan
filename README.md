@@ -70,9 +70,11 @@ A typical flow looks like this:
 1. Enter plan mode with `/plan` or `pi --plan`.
 2. Let the agent inspect the repo and ask clarifying questions.
 3. Receive exactly one `<proposed_plan>` block when the plan is ready.
-4. Choose whether to implement it, stay in plan mode, or exit.
+4. While the agent is idle, choose whether to implement it, save it to a new Markdown file, stay in plan mode, or exit.
 
 If you choose **Implement this plan**, pi-plan turns plan mode off first, restores full tool access, and immediately sends the full proposed plan back into the conversation as the implementation instruction.
+
+If you choose **Save plan**, pi-plan keeps plan mode active, keeps the current plan, and asks the agent to choose a new lowercase `.md` filename in an existing directory inside the current workspace. For that save turn only, Pi temporarily allows built-in `write` for the exact captured plan, permits a retry if the write execution fails, and disables `write` again after a successful save.
 
 ## What’s New In Current Behavior
 
@@ -80,7 +82,8 @@ The current release behavior includes a few workflow improvements beyond the ori
 
 - Optional plan-mode tool selections persist across Pi sessions.
 - Choosing **Implement this plan** directly sends the full proposed plan as the next instruction.
-- After a normal exit, the latest proposed plan is available only to the next normal-mode turn, then it is consumed.
+- While idle, choosing **Save plan** keeps plan mode active and lets the agent write the exact current plan to one new lowercase `.md` file inside the workspace.
+- After a normal exit, the latest proposed plan is available only to the first normal-mode turn, then it is consumed.
 - Once plan mode is off, `<proposed_plan>` blocks are stripped from normal assistant context so later turns do not carry stale planning markup forward.
 
 ## Command Reference
@@ -102,10 +105,8 @@ The current release behavior includes a few workflow improvements beyond the ori
 
 - Turns off plan mode.
 - Restores the tool set that was active before planning started.
-- Preserves the latest plan for the next normal-mode prompt only, then consumes it. To save it:
-  1. Select **Exit** or run `/plan:exit`.
-  2. On the next prompt, ask: `Write the latest proposed plan verbatim to docs/my-plan.md. Do not implement it.`
-- `/plan:exit` does not accept handoff text: `/plan:exit write the plan to proposed-plan.md` exits but does not send the write request. Re-entering plan mode before the next normal prompt discards the pending plan.
+- Preserves the latest plan for the first normal-mode prompt only, then consumes it.
+- If you want a file copy while staying in plan mode, use **Save plan** from the menu while the agent is idle.
 
 ### `pi --plan`
 
@@ -121,6 +122,8 @@ Plan mode keeps the default workflow read-only:
 - safe built-in planning tools remain available: `read`, `bash`, `grep`, `find`, and `ls`
 
 Optional extension tools are off by default. You can enable them with `/plan:tools`, and those selections persist across sessions. Built-in `edit` and `write` remain blocked even when extra tools are enabled, but non-built-in tools may still expose broader capabilities through their own interfaces, so treat them as deliberate opt-ins.
+
+During a **Save plan** turn, pi-plan narrows active tools back to the safe built-ins and temporarily adds built-in `write` only for the exact captured plan. If a write execution fails, the agent can retry during the same save turn; after a successful save, `write` stays disabled again. Save-path preflight rejects existing targets, broken symlinks, path traversal, and any path that resolves outside the current workspace. This preflight is a guardrail, not an atomic no-clobber guarantee against a concurrent filesystem race.
 
 ## Development And Verification
 
