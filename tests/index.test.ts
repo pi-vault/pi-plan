@@ -1303,51 +1303,77 @@ describe("context handler", () => {
   });
 });
 
-describe("widgets", () => {
-  it("shows planning widget when plan mode is enabled", async () => {
+describe("Plan mode UI", () => {
+  async function restoreUiState(latestPlan: string | undefined, awaitingAction: boolean) {
     const mock = createMockPi();
     createExtension(mock.pi);
-    const ctx = createMockContext();
-    await mock.commands.get("plan")!.handler("", ctx.ctx);
-
-    const widget = ctx.widgets.get("pi-plan") as string[];
-    expect(widget).toBeDefined();
-    expect(widget.some((line) => line.includes("Plan mode"))).toBe(true);
-  });
-
-  it("shows plan ready widget after plan is detected", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext();
-    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    const ctx = createMockContext({
+      entries: [
+        {
+          type: "custom",
+          customType: "plan-mode-state",
+          data: { enabled: true, latestPlan, awaitingAction },
+          id: "ui-state",
+          parentId: null,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    });
 
     await mock.fireEvent(
-      "agent_end",
-      {
-        type: "agent_end",
-        messages: [
-          {
-            role: "assistant",
-            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
-          },
-        ],
-      },
+      "session_start",
+      { type: "session_start", reason: "resume" },
       ctx,
     );
+    return ctx;
+  }
 
-    const widget = ctx.widgets.get("pi-plan") as string[];
-    expect(widget).toBeDefined();
-    expect(widget.some((line) => line.toLowerCase().includes("ready"))).toBe(true);
-  });
-
-  it("clears widget when plan mode exits", async () => {
+  it("shows active UI when enabled without a plan", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
     const ctx = createMockContext();
-    await mock.commands.get("plan")!.handler("", ctx.ctx); // on
-    expect(ctx.widgets.get("pi-plan")).toBeDefined();
 
-    await mock.commands.get("plan:exit")!.handler("", ctx.ctx); // off
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+    expect(ctx.widgets.get("pi-plan")).toEqual([
+      "Plan mode: planning",
+      "Produce a <proposed_plan> block.",
+    ]);
+  });
+
+  it.each([
+    ["latestPlan", "# Plan", false],
+    ["awaitingAction", undefined, true],
+  ] as const)("shows ready UI from %s", async (_source, latestPlan, awaitingAction) => {
+    const ctx = await restoreUiState(latestPlan, awaitingAction);
+
+    expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
+    expect(ctx.widgets.get("pi-plan")).toEqual([
+      "Proposed plan ready",
+      "Use /plan to implement, revise, or exit Plan mode.",
+    ]);
+  });
+
+  it("keeps a restored empty plan active", async () => {
+    const ctx = await restoreUiState("", false);
+
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+    expect(ctx.widgets.get("pi-plan")).toEqual([
+      "Plan mode: planning",
+      "Produce a <proposed_plan> block.",
+    ]);
+  });
+
+  it("clears both UI values on exit", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    await mock.commands.get("plan:exit")!.handler("", ctx.ctx);
+
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
     expect(ctx.widgets.get("pi-plan")).toBeUndefined();
   });
 });

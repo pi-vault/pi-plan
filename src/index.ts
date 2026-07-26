@@ -29,9 +29,7 @@ import {
 } from "./shared/constants.ts";
 import type { PlanModeState } from "./shared/types.ts";
 import { type PlanMenuAction, showPlanMenu, showPlanReadyMenu } from "./tui/menus.ts";
-import { formatStatus } from "./tui/status.ts";
 import { createToolSelectorComponent } from "./tui/tool-selector.ts";
-import { formatWidgetLines } from "./tui/widgets.ts";
 
 export default function createExtension(pi: ExtensionAPI): void {
   let state: PlanModeState = createInitialState();
@@ -52,8 +50,23 @@ export default function createExtension(pi: ExtensionAPI): void {
   }
 
   function updateUi(ctx: ExtensionContext): void {
-    ctx.ui.setStatus(STATUS_KEY, formatStatus(state));
-    ctx.ui.setWidget(WIDGET_KEY, formatWidgetLines(state));
+    if (!state.enabled) {
+      ctx.ui.setStatus(STATUS_KEY, undefined);
+      ctx.ui.setWidget(WIDGET_KEY, undefined);
+      return;
+    }
+
+    const ready = state.awaitingAction || Boolean(state.latestPlan);
+    ctx.ui.setStatus(STATUS_KEY, ready ? "plan ready" : "plan active");
+    ctx.ui.setWidget(
+      WIDGET_KEY,
+      ready
+        ? [
+            "Proposed plan ready",
+            "Use /plan to implement, revise, or exit Plan mode.",
+          ]
+        : ["Plan mode: planning", "Produce a <proposed_plan> block."],
+    );
   }
 
   function clearUi(ctx: ExtensionContext): void {
