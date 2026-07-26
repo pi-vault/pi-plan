@@ -22,7 +22,11 @@ export function getToolPolicy(tool: PlanToolInfo): {
   label: string;
 } {
   if (tool.sourceInfo.source !== "builtin") {
-    return { alwaysOn: false, toggleable: true, label: `user risk: ${tool.sourceInfo.source}` };
+    return {
+      alwaysOn: false,
+      toggleable: true,
+      label: `user risk: ${tool.sourceInfo.source}`,
+    };
   }
   if (SAFE_PLAN_TOOL_NAME_SET.has(tool.name)) {
     return {
@@ -42,11 +46,15 @@ export function planModeToolNames(selected: string[] = []): string[] {
 }
 
 export function savePlanToolNames(writeAvailable: boolean): string[] {
-  return writeAvailable ? [...SAFE_PLAN_TOOL_NAMES, "write"] : [...SAFE_PLAN_TOOL_NAMES];
+  return writeAvailable
+    ? [...SAFE_PLAN_TOOL_NAMES, "write"]
+    : [...SAFE_PLAN_TOOL_NAMES];
 }
 
 export function normalModeToolNames(previous?: string[]): string[] {
-  return previous && previous.length > 0 ? [...previous] : [...NORMAL_MODE_TOOL_NAMES];
+  return previous && previous.length > 0
+    ? [...previous]
+    : [...NORMAL_MODE_TOOL_NAMES];
 }
 
 export function safeGetAllTools(pi: ExtensionAPI): ToolInfo[] {
@@ -69,20 +77,20 @@ function configFilePath(): string {
   return join(getAgentDir(), CONFIG_FILENAME);
 }
 
-function selectedNames(config: Record<string, boolean>): string[] {
-  return Object.entries(config)
-    .filter(([name, enabled]) => enabled && !SAFE_PLAN_TOOL_NAME_SET.has(name))
-    .map(([name]) => name);
-}
-
 export async function readSelectedToolNames(): Promise<string[] | undefined> {
   try {
     const parsed = JSON.parse(await readFile(configFilePath(), "utf-8"));
-    if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") return undefined;
-    const config = Object.fromEntries(
-      Object.entries(parsed as object).filter(([, value]) => typeof value === "boolean"),
-    ) as Record<string, boolean>;
-    return Object.keys(config).length > 0 ? selectedNames(config) : undefined;
+    if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object")
+      return undefined;
+    const entries = Object.entries(parsed).filter(
+      ([, value]) => typeof value === "boolean",
+    );
+    if (entries.length === 0) return undefined;
+    return entries
+      .filter(
+        ([name, enabled]) => enabled && !SAFE_PLAN_TOOL_NAME_SET.has(name),
+      )
+      .map(([name]) => name);
   } catch {
     return undefined;
   }
