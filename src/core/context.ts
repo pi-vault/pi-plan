@@ -11,11 +11,6 @@ const ALL_PLAN_BLOCK_PATTERN =
 
 type AssistantMessage = Extract<AgentEndEvent["messages"][number], { role: "assistant" }>;
 
-function extractProposedPlan(text: string): string | undefined {
-  const content = text.match(PLAN_BLOCK_PATTERN)?.[1]?.trim();
-  return content || undefined;
-}
-
 function assistantText(message: AssistantMessage): string {
   return message.content
     .filter((part) => part.type === "text")
@@ -25,12 +20,12 @@ function assistantText(message: AssistantMessage): string {
 
 function sanitizeAssistantMessage(
   message: AssistantMessage,
-): AssistantMessage | undefined {
+): AssistantMessage {
   const content = message.content;
   const ranges = [...assistantText(message).matchAll(ALL_PLAN_BLOCK_PATTERN)].map(
     (match) => [match.index, match.index + match[0].length] as const,
   );
-  if (ranges.length === 0) return undefined;
+  if (ranges.length === 0) return message;
 
   let offset = 0;
   const sanitizedContent = content.map((part) => {
@@ -65,7 +60,8 @@ export function captureProposedPlan(
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role === "assistant") {
-      return extractProposedPlan(assistantText(message));
+      const plan = assistantText(message).match(PLAN_BLOCK_PATTERN)?.[1]?.trim();
+      return plan || undefined;
     }
   }
   return undefined;
@@ -77,28 +73,15 @@ export function sanitizePlanModeContext(
 ): { messages: ContextEvent["messages"] } | undefined {
   if (enabled) return undefined;
 
-  let changed = false;
-  const sanitizedMessages: ContextEvent["messages"] = [];
-
-  for (const message of messages) {
+  const sanitizedMessages = messages.flatMap<ContextEvent["messages"][number]>((message) => {
     if (message.role === "custom" && message.customType === PROPOSED_PLAN_MESSAGE_TYPE) {
-      changed = true;
-      continue;
+      return [];
     }
+    if (message.role !== "assistant") return [message];
+    return [sanitizeAssistantMessage(message)];
+  });
 
-    if (message.role !== "assistant") {
-      sanitizedMessages.push(message);
-      continue;
-    }
-
-    const sanitizedMessage = sanitizeAssistantMessage(message);
-    if (sanitizedMessage) {
-      changed = true;
-      sanitizedMessages.push(sanitizedMessage);
-    } else {
-      sanitizedMessages.push(message);
-    }
-  }
-
-  return changed ? { messages: sanitizedMessages } : undefined;
+  return messages.every((message, index) => sanitizedMessages[index] === message)
+    ? undefined
+    : { messages: sanitizedMessages };
 }
