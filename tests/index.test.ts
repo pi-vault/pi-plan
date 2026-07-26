@@ -12,7 +12,6 @@ import { tmpdir } from "node:os";
 import type { AgentEndEvent } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
-import { SAFE_BUILTIN_PLAN_TOOLS } from "../src/shared/constants.ts";
 import { PLAN_MENU_LABELS } from "../src/tui/menus.ts";
 import { createMockContext, createMockPi } from "./helpers.ts";
 
@@ -393,7 +392,7 @@ describe("write save preflight", () => {
     );
 
     expect(result).toBeUndefined();
-    expect(test.mock.activeTools).toEqual(expect.arrayContaining([...SAFE_BUILTIN_PLAN_TOOLS]));
+    expect(test.mock.activeTools).toEqual(expect.arrayContaining(["read", "bash", "grep", "find", "ls"]));
     expect(test.mock.activeTools).not.toContain("write");
 
     await test.mock.fireEvent(
@@ -838,7 +837,7 @@ describe("session persistence", () => {
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
   });
 
-  it("loads tool selections from config file on session_start", async () => {
+  it("uses valid JSON selections over restored session selections on session_start", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "pi-plan-config-"));
     const configDir = join(tempDir, "extensions");
     mkdirSync(configDir, { recursive: true });
@@ -858,7 +857,7 @@ describe("session persistence", () => {
           {
             type: "custom",
             customType: "plan-mode-state",
-            data: { enabled: true },
+            data: { enabled: true, selectedToolNames: ["session-only"] },
             id: "1",
             parentId: null,
             timestamp: new Date().toISOString(),
@@ -870,6 +869,7 @@ describe("session persistence", () => {
 
       expect(mock.activeTools).toContain("custom_tool");
       expect(mock.activeTools).toContain("read");
+      expect(mock.activeTools).not.toContain("session-only");
       expect(mock.activeTools).not.toContain("edit");
     } finally {
       if (originalEnv !== undefined) {
@@ -1810,7 +1810,9 @@ describe("plan save lifecycle", () => {
       "Save the current proposed plan. Choose a new lowercase .md filename in the workspace root /repo. Prefix the filename with today's date followed by a hyphen (YYYY-MM-DD-); use date +%F if needed. Pass only the filename as a relative workspace path; do not use an absolute path or a subdirectory. Write exactly the plan below to that file. Do not add leading or trailing whitespace, including a trailing newline. Make no other changes.\n\n# Ship It\n\nDetails",
     );
     expect(mock.userMessages[0].options).toBeUndefined();
-    expect(mock.activeTools).toEqual(expect.arrayContaining([...SAFE_BUILTIN_PLAN_TOOLS, "write"]));
+    expect(mock.activeTools).toEqual(
+      expect.arrayContaining(["read", "bash", "grep", "find", "ls", "write"]),
+    );
     expect(mock.activeTools).not.toContain("my-search");
     expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
   });
@@ -1851,7 +1853,9 @@ describe("plan save lifecycle", () => {
     expect((result as { systemPrompt: string }).systemPrompt).toContain("[PLAN MODE ACTIVE]");
     expect((result as { systemPrompt: string }).systemPrompt).not.toContain("# Saved Plan");
     expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
-    expect(mock.activeTools).toEqual(expect.arrayContaining([...SAFE_BUILTIN_PLAN_TOOLS, "write"]));
+    expect(mock.activeTools).toEqual(
+      expect.arrayContaining(["read", "bash", "grep", "find", "ls", "write"]),
+    );
     expect(mock.activeTools).not.toContain("my-search");
   });
 
@@ -2001,7 +2005,9 @@ describe("plan save lifecycle", () => {
 
     await mock.fireEvent("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
 
-    expect(mock.activeTools).toEqual(expect.arrayContaining([...SAFE_BUILTIN_PLAN_TOOLS, "my-search"]));
+    expect(mock.activeTools).toEqual(
+      expect.arrayContaining(["read", "bash", "grep", "find", "ls", "my-search"]),
+    );
     expect(mock.activeTools).not.toContain("write");
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
   });

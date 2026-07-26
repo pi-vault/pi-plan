@@ -5,21 +5,19 @@ import {
   captureProposedPlan,
   sanitizePlanModeContext,
 } from "./core/context.ts";
-import { readToolConfig, writeToolConfig } from "./core/config.ts";
 import { buildPlanModePrompt } from "./core/prompt.ts";
 import { isSafeCommand } from "./core/safety.ts";
 import { createInitialState, enterPlanMode, exitPlanMode, restoreState } from "./core/state.ts";
 import {
   normalModeToolNames,
-  planModeToolNamesWithSelections,
+  planModeToolNames,
+  readSelectedToolNames,
   safeGetActiveTools,
   safeGetAllTools,
-  selectedNamesToToolConfig,
-  toolConfigToSelectedNames,
+  savePlanToolNames,
+  writeSelectedToolNames,
 } from "./core/tools.ts";
 import {
-  BLOCKED_BUILTIN_TOOLS,
-  SAFE_BUILTIN_PLAN_TOOLS,
   STATE_ENTRY_TYPE,
   STATUS_KEY,
   WIDGET_KEY,
@@ -74,7 +72,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     if (previousTools === undefined) {
       previousTools = safeGetActiveTools(pi);
     }
-    pi.setActiveTools(planModeToolNamesWithSelections(state.selectedToolNames));
+    pi.setActiveTools(planModeToolNames(state.selectedToolNames));
   }
 
   function restoreTools(): void {
@@ -96,11 +94,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   }
 
   function activatePlanSaveTools(): void {
-    const toolNames = [...SAFE_BUILTIN_PLAN_TOOLS];
-    if (planWriteCallId === undefined && !planSaveSucceeded) {
-      toolNames.push("write");
-    }
-    pi.setActiveTools(toolNames);
+    pi.setActiveTools(savePlanToolNames(planWriteCallId === undefined && !planSaveSucceeded));
   }
 
   function blockPlanSave(reason: string): { block: true; reason: string } {
@@ -154,9 +148,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     activatePlanModeTools();
     persist();
 
-    // Persist to config file
-    const toolConfig = selectedNamesToToolConfig(selections, allTools);
-    writeToolConfig(toolConfig).catch(() => {});
+    void writeSelectedToolNames(selections, allTools);
 
     const count = selections.length;
     const msg =
@@ -336,7 +328,7 @@ export default function createExtension(pi: ExtensionAPI): void {
       return;
     }
 
-    if (BLOCKED_BUILTIN_TOOLS.has(event.toolName)) {
+    if (event.toolName === "edit") {
       return {
         block: true,
         reason: `Plan mode blocks '${event.toolName}'. Exit plan mode first with /plan:exit.`,
@@ -384,7 +376,7 @@ export default function createExtension(pi: ExtensionAPI): void {
         systemPrompt: `${event.systemPrompt}\n\n[PLAN HANDOFF]\nThe latest proposed plan is available for this turn as context. Follow the current user request; do not implement the plan unless asked.\n\n${plan}`,
       };
     }
-    pi.setActiveTools(planModeToolNamesWithSelections(state.selectedToolNames));
+    pi.setActiveTools(planModeToolNames(state.selectedToolNames));
     state = { ...state, latestPlan: undefined, awaitingAction: false };
     updateUi(ctx);
     return {
@@ -415,7 +407,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     const didSave = planSaveSucceeded;
     clearPlanSaveState();
     if (state.enabled) {
-      pi.setActiveTools(planModeToolNamesWithSelections(state.selectedToolNames));
+      pi.setActiveTools(planModeToolNames(state.selectedToolNames));
     }
     if (!didSave) {
       ctx.ui.notify("Save plan failed or was not completed.", "warning");
@@ -434,10 +426,9 @@ export default function createExtension(pi: ExtensionAPI): void {
       state = enterPlanMode(state);
     }
 
-    // Load persistent tool config (overrides session-entry selections)
-    const toolConfig = await readToolConfig();
-    if (toolConfig) {
-      state = { ...state, selectedToolNames: toolConfigToSelectedNames(toolConfig) };
+    const selectedToolNames = await readSelectedToolNames();
+    if (selectedToolNames !== undefined) {
+      state = { ...state, selectedToolNames };
     }
 
     if (state.enabled) {
@@ -449,7 +440,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   pi.on("session_shutdown", async (_event, ctx) => {
     clearPendingMenu();
     if (planToSave !== undefined && state.enabled) {
-      pi.setActiveTools(planModeToolNamesWithSelections(state.selectedToolNames));
+      pi.setActiveTools(planModeToolNames(state.selectedToolNames));
     }
     clearPlanSaveState();
     persist();

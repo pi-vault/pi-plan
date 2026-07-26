@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { PlanToolInfo } from "../../src/core/tools.ts";
 import { renderToolSelector, type ToolSelectorTheme } from "../../src/tui/tool-selector-render.ts";
-import type { ToolSelectorItem } from "../../src/tui/tool-selector-state.ts";
 import { initToolSelectorState } from "../../src/tui/tool-selector-state.ts";
 
 const noTheme: ToolSelectorTheme = {
@@ -9,14 +9,14 @@ const noTheme: ToolSelectorTheme = {
   dim: (text) => text,
 };
 
-function makeTools(names: string[], source = "extension"): ToolSelectorItem[] {
+function makeTools(names: string[], source = "extension"): PlanToolInfo[] {
   return names.map((name) => ({
     name,
     sourceInfo: { source },
   }));
 }
 
-function builtinTool(name: string): ToolSelectorItem {
+function builtinTool(name: string): PlanToolInfo {
   return { name, sourceInfo: { source: "builtin" } };
 }
 

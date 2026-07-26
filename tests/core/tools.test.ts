@@ -1,89 +1,101 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  defaultPlanModeToolNames,
+  getToolPolicy,
   normalModeToolNames,
-  planModeToolNamesWithSelections,
+  type PlanToolInfo,
+  planModeToolNames,
+  readSelectedToolNames,
   safeGetActiveTools,
   safeGetAllTools,
-  selectedNamesToToolConfig,
-  toolConfigToSelectedNames,
+  savePlanToolNames,
+  writeSelectedToolNames,
 } from "../../src/core/tools.ts";
 
-describe("defaultPlanModeToolNames", () => {
-  it("returns safe built-in tools", () => {
-    const tools = defaultPlanModeToolNames();
-    expect(tools).toContain("read");
-    expect(tools).toContain("bash");
-    expect(tools).toContain("grep");
-    expect(tools).toContain("find");
-    expect(tools).toContain("ls");
+function tool(name: string, source = "builtin"): PlanToolInfo {
+  return { name, sourceInfo: { source } };
+}
+
+describe("getToolPolicy", () => {
+  it("returns the fixed policy for every built-in row", () => {
+    for (const name of ["read", "grep", "find", "ls"]) {
+      expect(getToolPolicy(tool(name))).toEqual({
+        alwaysOn: true,
+        toggleable: false,
+        label: "built-in",
+      });
+    }
+    expect(getToolPolicy(tool("bash"))).toEqual({
+      alwaysOn: true,
+      toggleable: false,
+      label: "built-in limited",
+    });
+    expect(getToolPolicy(tool("edit"))).toEqual({
+      alwaysOn: false,
+      toggleable: false,
+      label: "built-in blocked",
+    });
+    expect(getToolPolicy(tool("write"))).toEqual({
+      alwaysOn: false,
+      toggleable: false,
+      label: "built-in blocked",
+    });
+    expect(getToolPolicy(tool("custom-built-in"))).toEqual({
+      alwaysOn: false,
+      toggleable: true,
+      label: "built-in",
+    });
   });
 
-  it("does not include edit or write", () => {
-    const tools = defaultPlanModeToolNames();
-    expect(tools).not.toContain("edit");
-    expect(tools).not.toContain("write");
+  it("marks non-built-in tools as user-risk optional tools", () => {
+    expect(getToolPolicy(tool("custom", "my-extension"))).toEqual({
+      alwaysOn: false,
+      toggleable: true,
+      label: "user risk: my-extension",
+    });
   });
 });
 
-describe("normalModeToolNames", () => {
-  it("returns previous tools when available", () => {
+describe("tool names", () => {
+  it("returns plan-mode tools in safe order", () => {
+    expect(planModeToolNames()).toEqual(["read", "bash", "grep", "find", "ls"]);
+  });
+
+  it("appends selections after deduplicating safe names", () => {
+    expect(planModeToolNames(["custom", "read"])).toEqual([
+      "read",
+      "bash",
+      "grep",
+      "find",
+      "ls",
+      "custom",
+    ]);
+  });
+
+  it("adds write only while saving", () => {
+    expect(savePlanToolNames(true)).toEqual(["read", "bash", "grep", "find", "ls", "write"]);
+    expect(savePlanToolNames(false)).toEqual(["read", "bash", "grep", "find", "ls"]);
+  });
+
+  it("preserves previous normal-mode tools or falls back to defaults", () => {
     const previous = ["read", "bash", "edit", "write", "custom-tool"];
     expect(normalModeToolNames(previous)).toEqual(previous);
-  });
-
-  it("returns defaults when previous is undefined", () => {
-    expect(normalModeToolNames(undefined)).toEqual(["read", "bash", "edit", "write"]);
-  });
-
-  it("returns defaults when previous is empty", () => {
+    expect(normalModeToolNames()).toEqual(["read", "bash", "edit", "write"]);
     expect(normalModeToolNames([])).toEqual(["read", "bash", "edit", "write"]);
   });
 });
 
-describe("planModeToolNamesWithSelections", () => {
-  it("returns default plan mode tools when selectedToolNames is undefined", () => {
-    const tools = planModeToolNamesWithSelections(undefined);
-    expect(tools).toContain("read");
-    expect(tools).toContain("bash");
-    expect(tools).toContain("grep");
-    expect(tools).toContain("find");
-    expect(tools).toContain("ls");
-    expect(tools).not.toContain("edit");
-    expect(tools).not.toContain("write");
-  });
-
-  it("merges safe defaults with user selections", () => {
-    const tools = planModeToolNamesWithSelections(["my-search-tool"]);
-    expect(tools).toContain("read");
-    expect(tools).toContain("bash");
-    expect(tools).toContain("my-search-tool");
-  });
-
-  it("deduplicates tools", () => {
-    const tools = planModeToolNamesWithSelections(["read", "my-tool"]);
-    const readCount = tools.filter((t) => t === "read").length;
-    expect(readCount).toBe(1);
-    expect(tools).toContain("my-tool");
-  });
-
-  it("returns only defaults when selections is empty array", () => {
-    const tools = planModeToolNamesWithSelections([]);
-    expect(tools).toContain("read");
-    expect(tools).toContain("bash");
-    expect(tools.length).toBe(5); // 5 SAFE_BUILTIN_PLAN_TOOLS
-  });
-});
-
-describe("safeGetAllTools", () => {
+describe("Pi tool access", () => {
   it("returns tools from pi.getAllTools()", () => {
-    const tools = [{ name: "read", sourceInfo: { source: "builtin" } }];
+    const tools = [tool("read")];
     const pi = { getAllTools: () => tools } as unknown as ExtensionAPI;
     expect(safeGetAllTools(pi)).toEqual(tools);
   });
 
-  it("returns empty array when getAllTools throws", () => {
+  it("returns an empty array when getAllTools throws", () => {
     const pi = {
       getAllTools: () => {
         throw new Error("not bound");
@@ -91,15 +103,13 @@ describe("safeGetAllTools", () => {
     } as unknown as ExtensionAPI;
     expect(safeGetAllTools(pi)).toEqual([]);
   });
-});
 
-describe("safeGetActiveTools", () => {
   it("returns tools from pi.getActiveTools()", () => {
     const pi = { getActiveTools: () => ["read", "bash"] } as unknown as ExtensionAPI;
     expect(safeGetActiveTools(pi)).toEqual(["read", "bash"]);
   });
 
-  it("returns DEFAULT_TOOLS when getActiveTools throws", () => {
+  it("returns normal defaults when getActiveTools throws", () => {
     const pi = {
       getActiveTools: () => {
         throw new Error("not bound");
@@ -109,60 +119,89 @@ describe("safeGetActiveTools", () => {
   });
 });
 
-describe("toolConfigToSelectedNames", () => {
-  it("returns names where value is true, excluding safe builtins", () => {
-    const config = {
-      read: true,
-      bash: true,
-      custom: true,
-      edit: false,
-      another: true,
-    };
-    const result = toolConfigToSelectedNames(config);
-    expect(result).toContain("custom");
-    expect(result).toContain("another");
-    expect(result).not.toContain("read");
-    expect(result).not.toContain("bash");
-    expect(result).not.toContain("edit");
+describe("selected tool persistence", () => {
+  let tempDir: string;
+  const originalEnv = process.env.PI_CODING_AGENT_DIR;
+  const configPath = () => join(tempDir, "extensions", "plan-tools.json");
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "pi-plan-tools-"));
+    process.env.PI_CODING_AGENT_DIR = tempDir;
   });
 
-  it("returns empty array when all values are false", () => {
-    const config = { custom: false, edit: false };
-    expect(toolConfigToSelectedNames(config)).toEqual([]);
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+    if (originalEnv === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = originalEnv;
   });
 
-  it("returns empty array for empty config", () => {
-    expect(toolConfigToSelectedNames({})).toEqual([]);
-  });
-});
+  it("returns undefined for missing, invalid, or boolean-free JSON", async () => {
+    await expect(readSelectedToolNames()).resolves.toBeUndefined();
 
-describe("selectedNamesToToolConfig", () => {
-  it("builds full map from selected names and all tools", () => {
+    mkdirSync(join(tempDir, "extensions"), { recursive: true });
+    writeFileSync(configPath(), "not json");
+    await expect(readSelectedToolNames()).resolves.toBeUndefined();
+
+    writeFileSync(configPath(), JSON.stringify({ custom: "yes", broken: 42 }));
+    await expect(readSelectedToolNames()).resolves.toBeUndefined();
+  });
+
+  it("rejects JSON arrays even when they contain booleans", async () => {
+    mkdirSync(join(tempDir, "extensions"), { recursive: true });
+    writeFileSync(configPath(), JSON.stringify([true, false]));
+
+    await expect(readSelectedToolNames()).resolves.toBeUndefined();
+  });
+
+  it("returns an empty selection for a valid boolean map without selected optional tools", async () => {
+    mkdirSync(join(tempDir, "extensions"), { recursive: true });
+    writeFileSync(configPath(), JSON.stringify({ read: true, bash: true, custom: false }));
+
+    await expect(readSelectedToolNames()).resolves.toEqual([]);
+  });
+
+  it("returns selected names from mixed boolean JSON", async () => {
+    mkdirSync(join(tempDir, "extensions"), { recursive: true });
+    writeFileSync(
+      configPath(),
+      JSON.stringify({ read: true, custom: true, disabled: false, ignored: "yes" }),
+    );
+
+    await expect(readSelectedToolNames()).resolves.toEqual(["custom"]);
+  });
+
+  it("writes the existing boolean-map JSON shape", async () => {
     const allTools = [
-      { name: "read", sourceInfo: { source: "builtin" } },
-      { name: "bash", sourceInfo: { source: "builtin" } },
-      { name: "edit", sourceInfo: { source: "builtin" } },
-      { name: "custom", sourceInfo: { source: "extension" } },
-      { name: "another", sourceInfo: { source: "extension" } },
+      tool("read"),
+      tool("bash"),
+      tool("grep"),
+      tool("find"),
+      tool("ls"),
+      tool("edit"),
+      tool("custom", "extension"),
+      tool("another", "extension"),
     ];
-    const selected = ["custom"];
-    const config = selectedNamesToToolConfig(selected, allTools);
-    expect(config).toEqual({
+
+    await writeSelectedToolNames(["custom"], allTools);
+
+    expect(existsSync(configPath())).toBe(true);
+    expect(JSON.parse(readFileSync(configPath(), "utf-8"))).toEqual({
       read: true,
       bash: true,
+      grep: true,
+      find: true,
+      ls: true,
       edit: false,
       custom: true,
       another: false,
     });
   });
 
-  it("marks safe builtins as true regardless of selection", () => {
-    const allTools = [
-      { name: "read", sourceInfo: { source: "builtin" } },
-      { name: "grep", sourceInfo: { source: "builtin" } },
-    ];
-    const config = selectedNamesToToolConfig([], allTools);
-    expect(config.read).toBe(true);
-    expect(config.grep).toBe(true);
+  it("absorbs persistence failures", async () => {
+    const blockedDir = join(tempDir, "not-a-directory");
+    writeFileSync(blockedDir, "file");
+    process.env.PI_CODING_AGENT_DIR = blockedDir;
+
+    await expect(writeSelectedToolNames([], [tool("read")])).resolves.toBeUndefined();
   });
 });

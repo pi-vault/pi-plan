@@ -1,16 +1,10 @@
-import {
-  BLOCKED_BUILTIN_TOOLS,
-  SAFE_BUILTIN_PLAN_TOOLS,
-  TOOL_SELECTOR_PAGE_SIZE,
-} from "../shared/constants.ts";
+import { getToolPolicy, planModeToolNames, type PlanToolInfo } from "../core/tools.ts";
+import { TOOL_SELECTOR_PAGE_SIZE } from "../shared/constants.ts";
 
-export interface ToolSelectorItem {
-  name: string;
-  sourceInfo: { source: string };
-}
+const SAFE_PLAN_TOOL_NAMES = new Set(planModeToolNames());
 
 export interface ToolSelectorState {
-  tools: ToolSelectorItem[];
+  tools: PlanToolInfo[];
   selectedNames: Set<string>;
   cursorIndex: number;
   page: number;
@@ -35,27 +29,19 @@ export type ToolSelectorResult =
   | { type: "next"; state: ToolSelectorState }
   | { type: "done"; selections: string[] | null };
 
-function isBuiltin(tool: ToolSelectorItem): boolean {
+function isBuiltin(tool: PlanToolInfo): boolean {
   return tool.sourceInfo.source === "builtin";
 }
 
-export function isToggleable(tool: ToolSelectorItem): boolean {
-  if (!isBuiltin(tool)) return true;
-  if (SAFE_BUILTIN_PLAN_TOOLS.has(tool.name)) return false;
-  if (BLOCKED_BUILTIN_TOOLS.has(tool.name)) return false;
-  return true;
+export function isToggleable(tool: PlanToolInfo): boolean {
+  return getToolPolicy(tool).toggleable;
 }
 
-export function toolPolicyLabel(tool: ToolSelectorItem): string {
-  if (isBuiltin(tool)) {
-    if (BLOCKED_BUILTIN_TOOLS.has(tool.name)) return "built-in blocked";
-    if (tool.name === "bash") return "built-in limited";
-    return "built-in";
-  }
-  return `user risk: ${tool.sourceInfo.source}`;
+export function toolPolicyLabel(tool: PlanToolInfo): string {
+  return getToolPolicy(tool).label;
 }
 
-function compareTools(a: ToolSelectorItem, b: ToolSelectorItem): number {
+function compareTools(a: PlanToolInfo, b: PlanToolInfo): number {
   const aBuiltin = isBuiltin(a);
   const bBuiltin = isBuiltin(b);
   if (aBuiltin !== bBuiltin) return aBuiltin ? -1 : 1;
@@ -63,7 +49,7 @@ function compareTools(a: ToolSelectorItem, b: ToolSelectorItem): number {
 }
 
 export function initToolSelectorState(
-  tools: ToolSelectorItem[],
+  tools: PlanToolInfo[],
   previousSelections: string[] | undefined,
 ): ToolSelectorState {
   return {
@@ -76,12 +62,12 @@ export function initToolSelectorState(
   };
 }
 
-function matchesQuery(tool: ToolSelectorItem, query: string): boolean {
+function matchesQuery(tool: PlanToolInfo, query: string): boolean {
   if (!query) return true;
   return tool.name.toLowerCase().includes(query.toLowerCase());
 }
 
-export function getVisibleTools(state: ToolSelectorState): ToolSelectorItem[] {
+export function getVisibleTools(state: ToolSelectorState): PlanToolInfo[] {
   if (state.query) {
     return state.tools.filter((t) => matchesQuery(t, state.query));
   }
@@ -99,8 +85,8 @@ function clampCursor(state: ToolSelectorState, index: number): number {
   return Math.max(0, Math.min(index, visible.length - 1));
 }
 
-export function isAlwaysOn(tool: ToolSelectorItem): boolean {
-  return isBuiltin(tool) && SAFE_BUILTIN_PLAN_TOOLS.has(tool.name);
+export function isAlwaysOn(tool: PlanToolInfo): boolean {
+  return getToolPolicy(tool).alwaysOn;
 }
 
 export function toolSelectorReducer(
@@ -112,7 +98,7 @@ export function toolSelectorReducer(
       return { type: "done", selections: null };
 
     case "save": {
-      const names = [...state.selectedNames].filter((name) => !SAFE_BUILTIN_PLAN_TOOLS.has(name));
+      const names = [...state.selectedNames].filter((name) => !SAFE_PLAN_TOOL_NAMES.has(name));
       return { type: "done", selections: names };
     }
 
