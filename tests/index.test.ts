@@ -1048,7 +1048,7 @@ describe("before_agent_start", () => {
         messages: [
           {
             role: "assistant",
-            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
+            content: [{ type: "text", text: "<proposed_plan>\n# Plan\n</proposed_plan>" }],
           },
         ],
       },
@@ -1080,8 +1080,12 @@ describe("agent_end", () => {
           { role: "user", content: "make a plan" },
           {
             role: "assistant",
-            content:
-              "Here is my plan:\n<proposed_plan>\n# My Plan\n## Summary\nDo stuff\n</proposed_plan>",
+            content: [
+              {
+                type: "text",
+                text: "Here is my plan:\n<proposed_plan>\n# My Plan\n## Summary\nDo stuff\n</proposed_plan>",
+              },
+            ],
           },
         ],
       },
@@ -1108,7 +1112,7 @@ describe("agent_end", () => {
         messages: [
           {
             role: "assistant",
-            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
+            content: [{ type: "text", text: "<proposed_plan>\n# Plan\n</proposed_plan>" }],
           },
         ],
       },
@@ -1128,7 +1132,7 @@ describe("agent_end", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [{ role: "assistant", content: "Just some text, no plan yet." }],
+        messages: [{ role: "assistant", content: [{ type: "text", text: "Just some text, no plan yet." }] }],
       },
       ctx,
     );
@@ -1151,7 +1155,7 @@ describe("agent_end", () => {
         messages: [
           {
             role: "assistant",
-            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
+            content: [{ type: "text", text: "<proposed_plan>\n# Plan\n</proposed_plan>" }],
           },
         ],
       },
@@ -1164,29 +1168,6 @@ describe("agent_end", () => {
 });
 
 describe("context handler", () => {
-  it("filters out plan-mode-state entries", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext();
-
-    const result = await mock.fireEvent(
-      "context",
-      {
-        type: "context",
-        messages: [
-          { role: "user", content: "hello" },
-          { customType: "plan-mode-state", data: { enabled: true } },
-          { role: "assistant", content: "world" },
-        ],
-      },
-      ctx,
-    );
-
-    expect(result).toBeDefined();
-    const { messages } = result as { messages: unknown[] };
-    expect(messages).toHaveLength(2);
-  });
-
   it("filters proposed-plan messages when plan mode is off", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
@@ -1198,8 +1179,14 @@ describe("context handler", () => {
         type: "context",
         messages: [
           { role: "user", content: "hello" },
-          { customType: "proposed-plan", content: "old plan", display: true },
-          { role: "assistant", content: "world" },
+          {
+            role: "custom",
+            customType: "proposed-plan",
+            content: "old plan",
+            display: true,
+            timestamp: 0,
+          },
+          { role: "assistant", content: [{ type: "text", text: "world" }] },
         ],
       },
       ctx,
@@ -1221,8 +1208,14 @@ describe("context handler", () => {
       {
         type: "context",
         messages: [
-          { customType: "proposed-plan", content: "current plan", display: true },
-          { role: "assistant", content: "world" },
+          {
+            role: "custom",
+            customType: "proposed-plan",
+            content: "current plan",
+            display: true,
+            timestamp: 0,
+          },
+          { role: "assistant", content: [{ type: "text", text: "world" }] },
         ],
       },
       ctx,
@@ -1243,7 +1236,7 @@ describe("context handler", () => {
         type: "context",
         messages: [
           { role: "user", content: "hello" },
-          { role: "assistant", content: "world" },
+          { role: "assistant", content: [{ type: "text", text: "world" }] },
         ],
       },
       ctx,
@@ -1264,8 +1257,12 @@ describe("context handler", () => {
         messages: [
           {
             role: "assistant",
-            content:
-              "Here is the plan:\n<proposed_plan>\n# Old Plan\n</proposed_plan>\nEnd.",
+            content: [
+              {
+                type: "text",
+                text: "Here is the plan:\n<proposed_plan>\n# Old Plan\n</proposed_plan>\nEnd.",
+              },
+            ],
           },
         ],
       },
@@ -1273,9 +1270,11 @@ describe("context handler", () => {
     );
 
     expect(result).toBeDefined();
-    const { messages } = result as { messages: Array<Record<string, unknown>> };
+    const { messages } = result as {
+      messages: Array<{ content: Array<{ text?: string }> }>;
+    };
     expect(messages).toHaveLength(1);
-    expect((messages[0] as any).content).toBe("Here is the plan:\n\nEnd.");
+    expect(messages[0]?.content[0]?.text).toBe("Here is the plan:\n\nEnd.");
   });
 
   it("does not strip proposed_plan blocks when plan mode is on", async () => {
@@ -1291,7 +1290,7 @@ describe("context handler", () => {
         messages: [
           {
             role: "assistant",
-            content: "<proposed_plan>\n# Current Plan\n</proposed_plan>",
+            content: [{ type: "text", text: "<proposed_plan>\n# Current Plan\n</proposed_plan>" }],
           },
         ],
       },

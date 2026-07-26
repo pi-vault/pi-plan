@@ -1,76 +1,96 @@
-const PLAN_BLOCK_REGEX = /<proposed_plan>([\s\S]*?)<\/proposed_plan>/i;
+import type {
+  AgentEndEvent,
+  ContextEvent,
+} from "@earendil-works/pi-coding-agent";
+import { PROPOSED_PLAN_MESSAGE_TYPE } from "../shared/constants.ts";
 
-export function extractProposedPlan(text: string): string | undefined {
-  const match = text.match(PLAN_BLOCK_REGEX);
-  const content = match?.[1]?.trim();
+const PLAN_BLOCK_PATTERN =
+  /^[ \t]*<proposed_plan>[ \t]*\r?\n([\s\S]*?)^[ \t]*<\/proposed_plan>[ \t]*\r?$/im;
+const ALL_PLAN_BLOCK_PATTERN =
+  /^[ \t]*<proposed_plan>[ \t]*\r?\n[\s\S]*?^[ \t]*<\/proposed_plan>[ \t]*\r?$/gim;
+
+type AssistantMessage = Extract<AgentEndEvent["messages"][number], { role: "assistant" }>;
+
+function extractProposedPlan(text: string): string | undefined {
+  const content = text.match(PLAN_BLOCK_PATTERN)?.[1]?.trim();
   return content || undefined;
 }
 
-export function getAssistantMessageText(message: Record<string, unknown>): string {
-  const content = message.content;
+function assistantText(message: AssistantMessage): string {
+  const content: unknown = message.content;
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
+
   return content
     .filter(
-      (part): part is Record<string, unknown> =>
+      (part): part is { type: "text"; text: string } =>
         typeof part === "object" &&
         part !== null &&
-        (part as Record<string, unknown>).type === "text",
+        (part as { type?: unknown }).type === "text" &&
+        typeof (part as { text?: unknown }).text === "string",
     )
-    .map((part) => String(part.text ?? ""))
+    .map((part) => part.text)
     .join("\n");
 }
 
-const PROPOSED_PLAN_BLOCK_PATTERN =
-  /<proposed_plan>[\s\S]*?<\/proposed_plan>/gi;
+function sanitizeAssistantMessage(
+  message: AssistantMessage,
+): AssistantMessage | undefined {
+  const content = message.content;
+  if (!Array.isArray(content)) return undefined;
 
-function stripProposedPlanBlocks(text: string): string {
-  return text.replace(PROPOSED_PLAN_BLOCK_PATTERN, "");
-}
-
-export function stripProposedPlanBlocksFromMessages(
-  messages: Array<Record<string, unknown>>,
-): Array<Record<string, unknown>> {
   let changed = false;
-  const result = messages.map((msg) => {
-    if (msg.role !== "assistant") return msg;
-    const content = msg.content;
-    if (typeof content === "string") {
-      const stripped = stripProposedPlanBlocks(content);
-      if (stripped !== content) {
-        changed = true;
-        return { ...msg, content: stripped };
-      }
-      return msg;
-    }
-    if (!Array.isArray(content)) return msg;
-    let blockChanged = false;
-    const newContent = content.map((block: Record<string, unknown>) => {
-      if (block.type !== "text" || typeof block.text !== "string") return block;
-      const stripped = stripProposedPlanBlocks(block.text as string);
-      if (stripped !== block.text) {
-        blockChanged = true;
-        return { ...block, text: stripped };
-      }
-      return block;
-    });
-    if (blockChanged) {
-      changed = true;
-      return { ...msg, content: newContent };
-    }
-    return msg;
+  const sanitizedContent = content.map((part) => {
+    if (part.type !== "text") return part;
+    const text = part.text.replace(ALL_PLAN_BLOCK_PATTERN, "");
+    if (text === part.text) return part;
+    changed = true;
+    return { ...part, text };
   });
-  return changed ? result : messages;
+
+  return changed ? { ...message, content: sanitizedContent } : undefined;
 }
 
-export function filterPlanModeMessages(
-  messages: Array<Record<string, unknown>>,
-  stateEntryType: string,
-  planMessageType: string | undefined,
-): Array<Record<string, unknown>> {
-  return messages.filter((msg) => {
-    if (msg.customType === stateEntryType) return false;
-    if (planMessageType && msg.customType === planMessageType) return false;
-    return true;
-  });
+export function captureProposedPlan(
+  messages: AgentEndEvent["messages"],
+): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "assistant") {
+      return extractProposedPlan(assistantText(message));
+    }
+  }
+  return undefined;
+}
+
+export function sanitizePlanModeContext(
+  messages: ContextEvent["messages"],
+  enabled: boolean,
+): { messages: ContextEvent["messages"] } | undefined {
+  if (enabled) return undefined;
+
+  let changed = false;
+  const sanitizedMessages: ContextEvent["messages"] = [];
+
+  for (const message of messages) {
+    if (message.role === "custom" && message.customType === PROPOSED_PLAN_MESSAGE_TYPE) {
+      changed = true;
+      continue;
+    }
+
+    if (message.role !== "assistant") {
+      sanitizedMessages.push(message);
+      continue;
+    }
+
+    const sanitizedMessage = sanitizeAssistantMessage(message);
+    if (sanitizedMessage) {
+      changed = true;
+      sanitizedMessages.push(sanitizedMessage);
+    } else {
+      sanitizedMessages.push(message);
+    }
+  }
+
+  return changed ? { messages: sanitizedMessages } : undefined;
 }
