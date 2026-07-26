@@ -51,8 +51,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   function updateUi(ctx: ExtensionContext): void {
     if (!state.enabled) {
-      ctx.ui.setStatus(STATUS_KEY, undefined);
-      ctx.ui.setWidget(WIDGET_KEY, undefined);
+      clearUi(ctx);
       return;
     }
 
