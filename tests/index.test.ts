@@ -9,11 +9,20 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { AgentEndEvent } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
 import { SAFE_BUILTIN_PLAN_TOOLS } from "../src/shared/constants.ts";
 import { PLAN_MENU_LABELS } from "../src/tui/menus.ts";
 import { createMockContext, createMockPi } from "./helpers.ts";
+
+type AssistantMessage = Extract<AgentEndEvent["messages"][number], { role: "assistant" }>;
+
+function assistantText(
+  text: string,
+): Pick<AssistantMessage, "role" | "content"> {
+  return { role: "assistant", content: [{ type: "text", text }] };
+}
 
 describe("createExtension", () => {
   it("registers the plan flag", () => {
@@ -99,7 +108,7 @@ describe("/plan command", () => {
       {
         type: "agent_end",
         messages: [
-          { role: "assistant", content: "<proposed_plan>\n# Plan\n</proposed_plan>" },
+          assistantText("<proposed_plan>\n# Plan\n</proposed_plan>"),
         ],
       },
       ctx,
@@ -164,7 +173,7 @@ describe("/plan:exit command", () => {
       {
         type: "agent_end",
         messages: [
-          { role: "assistant", content: "<proposed_plan>\n# Plan\n</proposed_plan>" },
+          assistantText("<proposed_plan>\n# Plan\n</proposed_plan>"),
         ],
       },
       ctx,
@@ -349,7 +358,7 @@ describe("write save preflight", () => {
         "agent_end",
         {
           type: "agent_end",
-          messages: [{ role: "assistant", content: `<proposed_plan>\n${plan}</proposed_plan>` }],
+          messages: [assistantText(`<proposed_plan>\n${plan}</proposed_plan>`)],
         },
         ctx,
       );
@@ -1393,10 +1402,9 @@ describe("plan menu actions", () => {
       {
         type: "agent_end",
         messages: [
-          {
-            role: "assistant",
-            content: "<proposed_plan>\n# My Plan\n## Summary\nBuild the thing\n</proposed_plan>",
-          },
+          assistantText(
+            "<proposed_plan>\n# My Plan\n## Summary\nBuild the thing\n</proposed_plan>",
+          ),
         ],
       },
       ctx,
@@ -1429,7 +1437,7 @@ describe("plan menu actions", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [{ role: "assistant", content: `<proposed_plan>\n${plan}\n</proposed_plan>` }],
+        messages: [assistantText(`<proposed_plan>\n${plan}\n</proposed_plan>`)],
       },
       ctx,
     );
@@ -1453,10 +1461,7 @@ describe("plan menu actions", () => {
       {
         type: "agent_end",
         messages: [
-          {
-            role: "assistant",
-            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
-          },
+          assistantText("<proposed_plan>\n# Plan\n</proposed_plan>"),
         ],
       },
       ctx,
@@ -1496,10 +1501,7 @@ describe("plan menu actions", () => {
       {
         type: "agent_end",
         messages: [
-          {
-            role: "assistant",
-            content: "<proposed_plan>\n# My Plan\n</proposed_plan>",
-          },
+          assistantText("<proposed_plan>\n# My Plan\n</proposed_plan>"),
         ],
       },
       ctx,
@@ -1562,10 +1564,9 @@ describe("agent_end auto-show menu", () => {
       {
         type: "agent_end",
         messages: [
-          {
-            role: "assistant",
-            content: "<proposed_plan>\n# Auto Plan\n## Summary\nDo the thing\n</proposed_plan>",
-          },
+          assistantText(
+            "<proposed_plan>\n# Auto Plan\n## Summary\nDo the thing\n</proposed_plan>",
+          ),
         ],
       },
       ctx,
@@ -1595,10 +1596,7 @@ describe("agent_end auto-show menu", () => {
       {
         type: "agent_end",
         messages: [
-          {
-            role: "assistant",
-            content: "<proposed_plan>\n# Plan\n</proposed_plan>",
-          },
+          assistantText("<proposed_plan>\n# Plan\n</proposed_plan>"),
         ],
       },
       ctx,
@@ -1798,10 +1796,7 @@ describe("plan save lifecycle", () => {
       {
         type: "agent_end",
         messages: [
-          {
-            role: "assistant",
-            content: "<proposed_plan>\n# Ship It\n\nDetails\n</proposed_plan>",
-          },
+          assistantText("<proposed_plan>\n# Ship It\n\nDetails\n</proposed_plan>"),
         ],
       },
       ctx,
@@ -1839,10 +1834,7 @@ describe("plan save lifecycle", () => {
       {
         type: "agent_end",
         messages: [
-          {
-            role: "assistant",
-            content: "<proposed_plan>\n# Saved Plan\n</proposed_plan>",
-          },
+          assistantText("<proposed_plan>\n# Saved Plan\n</proposed_plan>"),
         ],
       },
       ctx,
@@ -1874,10 +1866,7 @@ describe("plan save lifecycle", () => {
       {
         type: "agent_end",
         messages: [
-          {
-            role: "assistant",
-            content: "<proposed_plan>\n# Original Plan\n</proposed_plan>",
-          },
+          assistantText("<proposed_plan>\n# Original Plan\n</proposed_plan>"),
         ],
       },
       ctx,
@@ -1889,10 +1878,7 @@ describe("plan save lifecycle", () => {
       {
         type: "agent_end",
         messages: [
-          {
-            role: "assistant",
-            content: "<proposed_plan>\n# Replacement Plan\n</proposed_plan>",
-          },
+          assistantText("<proposed_plan>\n# Replacement Plan\n</proposed_plan>"),
         ],
       },
       ctx,
@@ -1930,10 +1916,7 @@ describe("plan save lifecycle", () => {
       {
         type: "agent_end",
         messages: [
-          {
-            role: "assistant",
-            content: "<proposed_plan>\n# Save Me\n</proposed_plan>",
-          },
+          assistantText("<proposed_plan>\n# Save Me\n</proposed_plan>"),
         ],
       },
       ctx,
@@ -1974,7 +1957,7 @@ describe("plan save lifecycle", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [{ role: "assistant", content: "<proposed_plan>\n# Save Me\n</proposed_plan>" }],
+        messages: [assistantText("<proposed_plan>\n# Save Me\n</proposed_plan>")],
       },
       ctx,
     );
@@ -2010,7 +1993,7 @@ describe("plan save lifecycle", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [{ role: "assistant", content: "<proposed_plan>\n# Save Me\n</proposed_plan>" }],
+        messages: [assistantText("<proposed_plan>\n# Save Me\n</proposed_plan>")],
       },
       ctx,
     );

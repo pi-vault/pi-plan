@@ -17,18 +17,8 @@ function extractProposedPlan(text: string): string | undefined {
 }
 
 function assistantText(message: AssistantMessage): string {
-  const content: unknown = message.content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-
-  return content
-    .filter(
-      (part): part is { type: "text"; text: string } =>
-        typeof part === "object" &&
-        part !== null &&
-        (part as { type?: unknown }).type === "text" &&
-        typeof (part as { text?: unknown }).text === "string",
-    )
+  return message.content
+    .filter((part) => part.type === "text")
     .map((part) => part.text)
     .join("\n");
 }
@@ -37,18 +27,36 @@ function sanitizeAssistantMessage(
   message: AssistantMessage,
 ): AssistantMessage | undefined {
   const content = message.content;
-  if (!Array.isArray(content)) return undefined;
+  const ranges = [...assistantText(message).matchAll(ALL_PLAN_BLOCK_PATTERN)].map(
+    (match) => [match.index, match.index + match[0].length] as const,
+  );
+  if (ranges.length === 0) return undefined;
 
-  let changed = false;
+  let offset = 0;
   const sanitizedContent = content.map((part) => {
     if (part.type !== "text") return part;
-    const text = part.text.replace(ALL_PLAN_BLOCK_PATTERN, "");
-    if (text === part.text) return part;
-    changed = true;
-    return { ...part, text };
+    const start = offset;
+    const end = start + part.text.length;
+    offset = end + 1;
+
+    let sanitizedText = part.text;
+    for (let index = ranges.length - 1; index >= 0; index -= 1) {
+      const range = ranges[index];
+      if (!range) continue;
+      const overlapStart = Math.max(start, range[0]);
+      const overlapEnd = Math.min(end, range[1]);
+      if (overlapStart >= overlapEnd) continue;
+
+      const localStart = overlapStart - start;
+      const localEnd = overlapEnd - start;
+      sanitizedText =
+        sanitizedText.slice(0, localStart) + sanitizedText.slice(localEnd);
+    }
+
+    return sanitizedText === part.text ? part : { ...part, text: sanitizedText };
   });
 
-  return changed ? { ...message, content: sanitizedContent } : undefined;
+  return { ...message, content: sanitizedContent };
 }
 
 export function captureProposedPlan(

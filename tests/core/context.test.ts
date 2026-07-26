@@ -54,8 +54,9 @@ describe("captureProposedPlan", () => {
   it("ignores an inline delimiter mention before a standalone plan block", () => {
     expect(
       captureProposedPlan([
-        assistantText("Intro mentions <proposed_plan> inline."),
-        assistantText("<proposed_plan>\n# Intended\n</proposed_plan>"),
+        assistantText(
+          "Intro mentions <proposed_plan>\n# Not intended\n</proposed_plan>\n<proposed_plan>\n# Intended\n</proposed_plan>",
+        ),
       ]),
     ).toBe("# Intended");
   });
@@ -103,6 +104,26 @@ describe("sanitizePlanModeContext", () => {
       messages: [
         user("hello"),
         assistantText("Intro mentions <proposed_plan> inline.\n\nAfter."),
+      ],
+    });
+  });
+
+  it("removes a standalone block split across text parts", () => {
+    const messages = [
+      assistant([
+        { type: "text", text: "Before.\n<proposed_plan>\n# " },
+        { type: "thinking", thinking: "reasoning" },
+        { type: "text", text: "Old\n</proposed_plan>\nAfter." },
+      ]),
+    ];
+
+    expect(sanitizePlanModeContext(messages, false)).toEqual({
+      messages: [
+        assistant([
+          { type: "text", text: "Before.\n" },
+          { type: "thinking", thinking: "reasoning" },
+          { type: "text", text: "\nAfter." },
+        ]),
       ],
     });
   });
