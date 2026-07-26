@@ -1,76 +1,87 @@
-const PLAN_BLOCK_REGEX = /<proposed_plan>([\s\S]*?)<\/proposed_plan>/i;
+import type {
+  AgentEndEvent,
+  ContextEvent,
+} from "@earendil-works/pi-coding-agent";
+import { PROPOSED_PLAN_MESSAGE_TYPE } from "../shared/constants.ts";
 
-export function extractProposedPlan(text: string): string | undefined {
-  const match = text.match(PLAN_BLOCK_REGEX);
-  const content = match?.[1]?.trim();
-  return content || undefined;
-}
+const PLAN_BLOCK_PATTERN =
+  /^[ \t]*<proposed_plan>[ \t]*\r?\n([\s\S]*?)^[ \t]*<\/proposed_plan>[ \t]*\r?$/im;
+const ALL_PLAN_BLOCK_PATTERN =
+  /^[ \t]*<proposed_plan>[ \t]*\r?\n[\s\S]*?^[ \t]*<\/proposed_plan>[ \t]*\r?$/gim;
 
-export function getAssistantMessageText(message: Record<string, unknown>): string {
-  const content = message.content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter(
-      (part): part is Record<string, unknown> =>
-        typeof part === "object" &&
-        part !== null &&
-        (part as Record<string, unknown>).type === "text",
-    )
-    .map((part) => String(part.text ?? ""))
+type AssistantMessage = Extract<AgentEndEvent["messages"][number], { role: "assistant" }>;
+
+function assistantText(message: AssistantMessage): string {
+  return message.content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
     .join("\n");
 }
 
-const PROPOSED_PLAN_BLOCK_PATTERN =
-  /<proposed_plan>[\s\S]*?<\/proposed_plan>/gi;
+function sanitizeAssistantMessage(
+  message: AssistantMessage,
+): AssistantMessage {
+  const content = message.content;
+  const ranges = [...assistantText(message).matchAll(ALL_PLAN_BLOCK_PATTERN)].map(
+    (match) => [match.index, match.index + match[0].length] as const,
+  );
+  if (ranges.length === 0) return message;
 
-function stripProposedPlanBlocks(text: string): string {
-  return text.replace(PROPOSED_PLAN_BLOCK_PATTERN, "");
+  let offset = 0;
+  const sanitizedContent = content.map((part) => {
+    if (part.type !== "text") return part;
+    const start = offset;
+    const end = start + part.text.length;
+    offset = end + 1;
+
+    let sanitizedText = part.text;
+    for (let index = ranges.length - 1; index >= 0; index -= 1) {
+      const range = ranges[index];
+      if (!range) continue;
+      const overlapStart = Math.max(start, range[0]);
+      const overlapEnd = Math.min(end, range[1]);
+      if (overlapStart >= overlapEnd) continue;
+
+      const localStart = overlapStart - start;
+      const localEnd = overlapEnd - start;
+      sanitizedText =
+        sanitizedText.slice(0, localStart) + sanitizedText.slice(localEnd);
+    }
+
+    return sanitizedText === part.text ? part : { ...part, text: sanitizedText };
+  });
+
+  return { ...message, content: sanitizedContent };
 }
 
-export function stripProposedPlanBlocksFromMessages(
-  messages: Array<Record<string, unknown>>,
-): Array<Record<string, unknown>> {
-  let changed = false;
-  const result = messages.map((msg) => {
-    if (msg.role !== "assistant") return msg;
-    const content = msg.content;
-    if (typeof content === "string") {
-      const stripped = stripProposedPlanBlocks(content);
-      if (stripped !== content) {
-        changed = true;
-        return { ...msg, content: stripped };
-      }
-      return msg;
+export function captureProposedPlan(
+  messages: AgentEndEvent["messages"],
+): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "assistant") {
+      const plan = assistantText(message).match(PLAN_BLOCK_PATTERN)?.[1]?.trim();
+      return plan || undefined;
     }
-    if (!Array.isArray(content)) return msg;
-    let blockChanged = false;
-    const newContent = content.map((block: Record<string, unknown>) => {
-      if (block.type !== "text" || typeof block.text !== "string") return block;
-      const stripped = stripProposedPlanBlocks(block.text as string);
-      if (stripped !== block.text) {
-        blockChanged = true;
-        return { ...block, text: stripped };
-      }
-      return block;
-    });
-    if (blockChanged) {
-      changed = true;
-      return { ...msg, content: newContent };
-    }
-    return msg;
-  });
-  return changed ? result : messages;
+  }
+  return undefined;
 }
 
-export function filterPlanModeMessages(
-  messages: Array<Record<string, unknown>>,
-  stateEntryType: string,
-  planMessageType: string | undefined,
-): Array<Record<string, unknown>> {
-  return messages.filter((msg) => {
-    if (msg.customType === stateEntryType) return false;
-    if (planMessageType && msg.customType === planMessageType) return false;
-    return true;
+export function sanitizePlanModeContext(
+  messages: ContextEvent["messages"],
+  enabled: boolean,
+): { messages: ContextEvent["messages"] } | undefined {
+  if (enabled) return undefined;
+
+  const sanitizedMessages = messages.flatMap<ContextEvent["messages"][number]>((message) => {
+    if (message.role === "custom" && message.customType === PROPOSED_PLAN_MESSAGE_TYPE) {
+      return [];
+    }
+    if (message.role !== "assistant") return [message];
+    return [sanitizeAssistantMessage(message)];
   });
+
+  return messages.every((message, index) => sanitizedMessages[index] === message)
+    ? undefined
+    : { messages: sanitizedMessages };
 }

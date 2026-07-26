@@ -2,10 +2,8 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { lstatSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import {
-  extractProposedPlan,
-  filterPlanModeMessages,
-  getAssistantMessageText,
-  stripProposedPlanBlocksFromMessages,
+  captureProposedPlan,
+  sanitizePlanModeContext,
 } from "./core/context.ts";
 import { readToolConfig, writeToolConfig } from "./core/config.ts";
 import { buildPlanModePrompt } from "./core/prompt.ts";
@@ -21,7 +19,6 @@ import {
 } from "./core/tools.ts";
 import {
   BLOCKED_BUILTIN_TOOLS,
-  PROPOSED_PLAN_MESSAGE_TYPE,
   SAFE_BUILTIN_PLAN_TOOLS,
   STATE_ENTRY_TYPE,
   STATUS_KEY,
@@ -398,11 +395,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   pi.on("agent_end", async (event, ctx) => {
     if (!state.enabled) return;
     if (planToSave !== undefined) return;
-    const messages = (event.messages as unknown as Array<Record<string, unknown>>) ?? [];
-    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-    if (!lastAssistant) return;
-    const text = getAssistantMessageText(lastAssistant);
-    const plan = extractProposedPlan(text);
+    const plan = captureProposedPlan(event.messages);
     if (!plan) return;
     state = { ...state, latestPlan: plan, awaitingAction: true };
     persist();
@@ -430,15 +423,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("context", async (event) => {
-    const messages = (event.messages as unknown as Array<Record<string, unknown>>) ?? [];
-    const planMessageType = state.enabled ? undefined : PROPOSED_PLAN_MESSAGE_TYPE;
-    const filtered = filterPlanModeMessages(messages, STATE_ENTRY_TYPE, planMessageType);
-    const processed = state.enabled
-      ? filtered
-      : stripProposedPlanBlocksFromMessages(filtered);
-    if (filtered.length !== messages.length || processed !== filtered) {
-      return { messages: processed as unknown as typeof event.messages };
-    }
+    return sanitizePlanModeContext(event.messages, state.enabled);
   });
 
   pi.on("session_start", async (_event, ctx) => {
