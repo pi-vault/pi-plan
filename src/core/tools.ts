@@ -1,26 +1,57 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_TOOLS, SAFE_BUILTIN_PLAN_TOOLS } from "../shared/constants.ts";
-import type { ToolSelectorItem } from "../tui/tool-selector-state.ts";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import {
+  getAgentDir,
+  type ExtensionAPI,
+  type ToolInfo,
+} from "@earendil-works/pi-coding-agent";
 
-export function defaultPlanModeToolNames(): string[] {
-  return [...SAFE_BUILTIN_PLAN_TOOLS];
-}
+const SAFE_PLAN_TOOL_NAMES = ["read", "bash", "grep", "find", "ls"];
+const SAFE_PLAN_TOOL_NAME_SET = new Set(SAFE_PLAN_TOOL_NAMES);
+const BLOCKED_TOOL_NAMES = new Set(["edit", "write"]);
+const NORMAL_MODE_TOOL_NAMES = ["read", "bash", "edit", "write"];
+const CONFIG_FILENAME = "extensions/plan-tools.json";
 
-export function normalModeToolNames(previousTools: string[] | undefined): string[] {
-  return previousTools && previousTools.length > 0 ? [...previousTools] : [...DEFAULT_TOOLS];
-}
+export type PlanToolInfo = Pick<ToolInfo, "name"> & {
+  sourceInfo: Pick<ToolInfo["sourceInfo"], "source">;
+};
 
-export function planModeToolNamesWithSelections(selectedToolNames: string[] | undefined): string[] {
-  if (selectedToolNames === undefined) {
-    return defaultPlanModeToolNames();
+export function getToolPolicy(tool: PlanToolInfo): {
+  alwaysOn: boolean;
+  toggleable: boolean;
+  label: string;
+} {
+  if (tool.sourceInfo.source !== "builtin") {
+    return { alwaysOn: false, toggleable: true, label: `user risk: ${tool.sourceInfo.source}` };
   }
-  const merged = new Set([...SAFE_BUILTIN_PLAN_TOOLS, ...selectedToolNames]);
-  return [...merged];
+  if (SAFE_PLAN_TOOL_NAME_SET.has(tool.name)) {
+    return {
+      alwaysOn: true,
+      toggleable: false,
+      label: tool.name === "bash" ? "built-in limited" : "built-in",
+    };
+  }
+  if (BLOCKED_TOOL_NAMES.has(tool.name)) {
+    return { alwaysOn: false, toggleable: false, label: "built-in blocked" };
+  }
+  return { alwaysOn: false, toggleable: true, label: "built-in" };
 }
 
-export function safeGetAllTools(pi: ExtensionAPI): ToolSelectorItem[] {
+export function planModeToolNames(selected: string[] = []): string[] {
+  return [...new Set([...SAFE_PLAN_TOOL_NAMES, ...selected])];
+}
+
+export function savePlanToolNames(writeAvailable: boolean): string[] {
+  return writeAvailable ? [...SAFE_PLAN_TOOL_NAMES, "write"] : [...SAFE_PLAN_TOOL_NAMES];
+}
+
+export function normalModeToolNames(previous?: string[]): string[] {
+  return previous && previous.length > 0 ? [...previous] : [...NORMAL_MODE_TOOL_NAMES];
+}
+
+export function safeGetAllTools(pi: ExtensionAPI): ToolInfo[] {
   try {
-    return pi.getAllTools() as ToolSelectorItem[];
+    return pi.getAllTools();
   } catch {
     return [];
   }
@@ -30,28 +61,49 @@ export function safeGetActiveTools(pi: ExtensionAPI): string[] {
   try {
     return pi.getActiveTools();
   } catch {
-    return [...DEFAULT_TOOLS];
+    return [...NORMAL_MODE_TOOL_NAMES];
   }
 }
 
-export function toolConfigToSelectedNames(config: Record<string, boolean>): string[] {
+function configFilePath(): string {
+  return join(getAgentDir(), CONFIG_FILENAME);
+}
+
+function selectedNames(config: Record<string, boolean>): string[] {
   return Object.entries(config)
-    .filter(([name, enabled]) => enabled && !SAFE_BUILTIN_PLAN_TOOLS.has(name))
+    .filter(([name, enabled]) => enabled && !SAFE_PLAN_TOOL_NAME_SET.has(name))
     .map(([name]) => name);
 }
 
-export function selectedNamesToToolConfig(
-  selectedNames: string[],
-  allTools: ToolSelectorItem[],
-): Record<string, boolean> {
-  const selected = new Set(selectedNames);
-  const config: Record<string, boolean> = {};
-  for (const tool of allTools) {
-    if (SAFE_BUILTIN_PLAN_TOOLS.has(tool.name)) {
-      config[tool.name] = true;
-    } else {
-      config[tool.name] = selected.has(tool.name);
-    }
+export async function readSelectedToolNames(): Promise<string[] | undefined> {
+  try {
+    const parsed = JSON.parse(await readFile(configFilePath(), "utf-8"));
+    if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") return undefined;
+    const config = Object.fromEntries(
+      Object.entries(parsed as object).filter(([, value]) => typeof value === "boolean"),
+    ) as Record<string, boolean>;
+    return Object.keys(config).length > 0 ? selectedNames(config) : undefined;
+  } catch {
+    return undefined;
   }
-  return config;
+}
+
+export async function writeSelectedToolNames(
+  selected: string[],
+  allTools: PlanToolInfo[],
+): Promise<void> {
+  const config = Object.fromEntries(
+    allTools.map((tool) => [
+      tool.name,
+      SAFE_PLAN_TOOL_NAME_SET.has(tool.name) || selected.includes(tool.name),
+    ]),
+  );
+  const filePath = configFilePath();
+
+  try {
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, JSON.stringify(config, null, 2), "utf-8");
+  } catch {
+    // Persistence is optional.
+  }
 }

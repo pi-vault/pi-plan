@@ -1,24 +1,22 @@
 import { describe, expect, it } from "vitest";
+import type { PlanToolInfo } from "../../src/core/tools.ts";
 import { TOOL_SELECTOR_PAGE_SIZE } from "../../src/shared/constants.ts";
 import {
   getVisibleTools,
   initToolSelectorState,
   isToggleable,
-  type ToolSelectorAction,
-  type ToolSelectorItem,
-  type ToolSelectorResult,
   toolPolicyLabel,
   toolSelectorReducer,
 } from "../../src/tui/tool-selector-state.ts";
 
-function makeTools(names: string[], source = "extension"): ToolSelectorItem[] {
+function makeTools(names: string[], source = "extension"): PlanToolInfo[] {
   return names.map((name) => ({
     name,
     sourceInfo: { source },
   }));
 }
 
-function builtinTool(name: string): ToolSelectorItem {
+function builtinTool(name: string): PlanToolInfo {
   return { name, sourceInfo: { source: "builtin" } };
 }
 
@@ -232,6 +230,13 @@ describe("toolSelectorReducer", () => {
       expect(result.selections).toContain("a");
       expect(result.selections).not.toContain("read");
     }
+  });
+
+  it("save removes a selected safe name regardless of its discovered source", () => {
+    const state = initToolSelectorState(makeTools(["read"]), ["read"]);
+    const result = toolSelectorReducer(state, { type: "save" });
+
+    expect(result).toEqual({ type: "done", selections: [] });
   });
 
   it("cancel returns null", () => {

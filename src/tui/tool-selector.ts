@@ -1,14 +1,14 @@
 import { type Component, Key, matchesKey } from "@earendil-works/pi-tui";
+import type { PlanToolInfo } from "../core/tools.ts";
 import { renderToolSelector, type ToolSelectorTheme } from "./tool-selector-render.ts";
 import {
   initToolSelectorState,
-  type ToolSelectorItem,
   type ToolSelectorState,
   toolSelectorReducer,
 } from "./tool-selector-state.ts";
 
 export function createToolSelectorComponent(options: {
-  tools: ToolSelectorItem[];
+  tools: PlanToolInfo[];
   previousSelections: string[] | undefined;
   theme: ToolSelectorTheme;
   done: (result: string[] | null) => void;

@@ -1,8 +1,8 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { PlanToolInfo } from "../core/tools.ts";
 import {
   getVisibleTools,
   isAlwaysOn,
-  type ToolSelectorItem,
   type ToolSelectorState,
   toolPolicyLabel,
   totalPages,
@@ -25,7 +25,7 @@ const HELP_SEARCHING =
 const SUBTITLE = "Non-built-in tools run at user risk.";
 const SEARCH_PLACEHOLDER = "Type to search";
 
-function policyColor(tool: ToolSelectorItem): string {
+function policyColor(tool: PlanToolInfo): string {
   const label = toolPolicyLabel(tool);
   if (label === "built-in blocked") return "error";
   if (label === "built-in limited") return "warning";
@@ -34,7 +34,7 @@ function policyColor(tool: ToolSelectorItem): string {
 }
 
 function renderToolRow(
-  tool: ToolSelectorItem,
+  tool: PlanToolInfo,
   selected: boolean,
   focused: boolean,
   theme: ToolSelectorTheme,
