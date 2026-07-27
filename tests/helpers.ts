@@ -2,6 +2,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
+  ExtensionUIContext,
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 
@@ -116,6 +117,9 @@ export function createMockPi(options?: {
       let result: unknown;
       for (const handler of handlers) {
         result = await handler(event, mockCtx.ctx);
+        if (name === "tool_call" && (result as { block?: unknown } | undefined)?.block === true) {
+          return result;
+        }
       }
       return result;
     },
@@ -165,7 +169,7 @@ export function createMockContext(options?: {
           inputCalls.push({ title, placeholder });
           return undefined;
         },
-        async custom(factory: Function) {
+        async custom(factory: Parameters<ExtensionUIContext["custom"]>[0]) {
           const result = options?.customResult ?? null;
           customCalls.push({ result });
           const noopTheme = {
@@ -173,7 +177,7 @@ export function createMockContext(options?: {
             bold: (text: string) => text,
           };
           const done = (_r: unknown) => {};
-          factory({}, noopTheme, {}, done);
+          factory({} as never, noopTheme as never, {} as never, done);
           return result;
         },
         theme: {
