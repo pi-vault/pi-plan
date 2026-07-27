@@ -4,7 +4,6 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -365,7 +364,7 @@ describe("write save preflight", () => {
     };
 
     tempDirs.push(workspace);
-    return { mock, ctx, workspace, plan: capturedPlan, startSave };
+    return { mock, ctx, plan: capturedPlan, startSave };
   }
 
   const tempDirs: string[] = [];
@@ -376,187 +375,44 @@ describe("write save preflight", () => {
     }
   });
 
-  it("allows one exact write for the captured content and sibling write paths only", async () => {
-    const test = setupSavePlan("# Saved Plan\n");
+  it("does not call later tool handlers after Save blocks a write", async () => {
+    const test = setupSavePlan();
     await test.startSave();
-
-    const result = await test.mock.fireEvent(
-      "tool_call",
-      {
-        type: "tool_call",
-        toolCallId: "write-1",
-        toolName: "write",
-        input: { path: "2026-07-25-plan.md", content: test.plan },
-      },
-      test.ctx,
-    );
-
-    expect(result).toBeUndefined();
-    expect(test.mock.activeTools).toEqual(expect.arrayContaining(["read", "bash", "grep", "find", "ls"]));
-    expect(test.mock.activeTools).not.toContain("write");
+    let laterHandlerCalled = false;
+    test.mock.pi.on("tool_call", async () => {
+      laterHandlerCalled = true;
+    });
 
     await test.mock.fireEvent(
-      "tool_execution_end",
-      {
-        type: "tool_execution_end",
-        toolCallId: "write-1",
-        toolName: "write",
-        result: { ok: true },
-        isError: false,
-      },
-      test.ctx,
-    );
-
-    expect(test.mock.activeTools).not.toContain("write");
-  });
-
-  it("blocks write content changes unless the captured content is exact", async () => {
-    const test = setupSavePlan("# Saved Plan\n");
-    await test.startSave();
-
-    const result = await test.mock.fireEvent(
       "tool_call",
       {
         type: "tool_call",
-        toolCallId: "write-content",
+        toolCallId: "write-blocked",
         toolName: "write",
-        input: { path: "docs/plan.md", content: "# Saved Plan\nextra\n" },
+        input: { path: "docs/plan.md", content: "changed" },
       },
       test.ctx,
     );
 
-    expect(result).toEqual(expect.objectContaining({ block: true }));
-    expect(test.mock.activeTools).toContain("write");
+    expect(laterHandlerCalled).toBe(false);
   });
 
-  it("blocks null or undefined write input instead of throwing", async () => {
+  it("keeps unsafe bash blocked while Save is active", async () => {
     const test = setupSavePlan();
     await test.startSave();
 
-    for (const [toolCallId, input] of [
-      ["write-null-input", null],
-      ["write-undefined-input", undefined],
-    ] as const) {
-      const result = await test.mock.fireEvent(
+    expect(
+      await test.mock.fireEvent(
         "tool_call",
         {
           type: "tool_call",
-          toolCallId,
-          toolName: "write",
-          input,
+          toolCallId: "bash-save",
+          toolName: "bash",
+          input: { command: "touch docs/other.md" },
         },
         test.ctx,
-      );
-
-      expect(result).toEqual(expect.objectContaining({ block: true }));
-    }
-  });
-
-  it("blocks write path validation failures for non-md, missing parent, absolute, traversal, home, @, file, and Unicode-space paths", async () => {
-    const test = setupSavePlan();
-    await test.startSave();
-
-    const badPaths = [
-      "docs/plan.txt",
-      "missing/plan.md",
-      join(test.workspace, "docs/plan.md"),
-      "../plan.md",
-      "~/plan.md",
-      "@docs/plan.md",
-      "file:///tmp/plan.md",
-      "docs/plan\u00A0.md",
-    ];
-
-    for (const [index, filePath] of badPaths.entries()) {
-      const result = await test.mock.fireEvent(
-        "tool_call",
-        {
-          type: "tool_call",
-          toolCallId: `write-path-${index}`,
-          toolName: "write",
-          input: { path: filePath, content: test.plan },
-        },
-        test.ctx,
-      );
-
-      expect(result).toEqual(expect.objectContaining({ block: true }));
-      expect(test.mock.activeTools).toContain("write");
-    }
-  });
-
-  it("blocks write targets when the target exists or is a broken target symlink", async () => {
-    const existing = setupSavePlan();
-    writeFileSync(join(existing.workspace, "docs", "plan.md"), "old");
-    await existing.startSave();
-
-    const existingResult = await existing.mock.fireEvent(
-      "tool_call",
-      {
-        type: "tool_call",
-        toolCallId: "write-existing",
-        toolName: "write",
-        input: { path: "docs/plan.md", content: existing.plan },
-      },
-      existing.ctx,
-    );
-
-    expect(existingResult).toEqual(expect.objectContaining({ block: true }));
-
-    const fileParent = setupSavePlan();
-    writeFileSync(join(fileParent.workspace, "docs", "taken"), "nope");
-    await fileParent.startSave();
-
-    const fileParentResult = await fileParent.mock.fireEvent(
-      "tool_call",
-      {
-        type: "tool_call",
-        toolCallId: "write-file-parent",
-        toolName: "write",
-        input: { path: "docs/taken/plan.md", content: fileParent.plan },
-      },
-      fileParent.ctx,
-    );
-
-    expect(fileParentResult).toEqual(expect.objectContaining({ block: true }));
-
-    const broken = setupSavePlan();
-    symlinkSync(join(broken.workspace, "missing.md"), join(broken.workspace, "docs", "plan.md"));
-    await broken.startSave();
-
-    const brokenResult = await broken.mock.fireEvent(
-      "tool_call",
-      {
-        type: "tool_call",
-        toolCallId: "write-symlink-target",
-        toolName: "write",
-        input: { path: "docs/plan.md", content: broken.plan },
-      },
-      broken.ctx,
-    );
-
-    expect(brokenResult).toEqual(expect.objectContaining({ block: true }));
-  });
-
-  it("blocks write when a symlinked parent resolves outside the workspace", async () => {
-    const test = setupSavePlan();
-    const outside = mkdtempSync(join(tmpdir(), "pi-plan-outside-"));
-    tempDirs.push(outside);
-    rmSync(join(test.workspace, "docs"), { recursive: true, force: true });
-    symlinkSync(outside, join(test.workspace, "docs"));
-    await test.startSave();
-
-    const result = await test.mock.fireEvent(
-      "tool_call",
-      {
-        type: "tool_call",
-        toolCallId: "write-symlink-parent",
-        toolName: "write",
-        input: { path: "docs/plan.md", content: test.plan },
-      },
-      test.ctx,
-    );
-
-    expect(result).toEqual(expect.objectContaining({ block: true }));
+      ),
+    ).toEqual(expect.objectContaining({ block: true }));
   });
 
   it("freezes write input before later handlers can mutate it", async () => {
@@ -626,96 +482,6 @@ describe("write save preflight", () => {
     expect(test.mock.activeTools).toContain("write");
   });
 
-  it("blocks a reserved sibling second write until execution_end releases the reservation", async () => {
-    const test = setupSavePlan();
-    await test.startSave();
-
-    const first = await test.mock.fireEvent(
-      "tool_call",
-      {
-        type: "tool_call",
-        toolCallId: "write-reserved-1",
-        toolName: "write",
-        input: { path: "docs/first.md", content: test.plan },
-      },
-      test.ctx,
-    );
-
-    expect(first).toBeUndefined();
-
-    const second = await test.mock.fireEvent(
-      "tool_call",
-      {
-        type: "tool_call",
-        toolCallId: "write-reserved-2",
-        toolName: "write",
-        input: { path: "docs/second.md", content: test.plan },
-      },
-      test.ctx,
-    );
-
-    expect(second).toEqual(expect.objectContaining({ block: true }));
-
-    await test.mock.fireEvent(
-      "tool_execution_end",
-      {
-        type: "tool_execution_end",
-        toolCallId: "write-reserved-1",
-        toolName: "write",
-        result: { error: "blocked later" },
-        isError: true,
-      },
-      test.ctx,
-    );
-
-    expect(test.mock.activeTools).toContain("write");
-  });
-
-  it("allows write retry after tool_execution_end reports an error", async () => {
-    const test = setupSavePlan();
-    await test.startSave();
-
-    const first = await test.mock.fireEvent(
-      "tool_call",
-      {
-        type: "tool_call",
-        toolCallId: "write-retry-1",
-        toolName: "write",
-        input: { path: "docs/plan.md", content: test.plan },
-      },
-      test.ctx,
-    );
-
-    expect(first).toBeUndefined();
-
-    await test.mock.fireEvent(
-      "tool_execution_end",
-      {
-        type: "tool_execution_end",
-        toolCallId: "write-retry-1",
-        toolName: "write",
-        result: { message: "disk full" },
-        isError: true,
-      },
-      test.ctx,
-    );
-
-    expect(test.mock.activeTools).toContain("write");
-
-    const second = await test.mock.fireEvent(
-      "tool_call",
-      {
-        type: "tool_call",
-        toolCallId: "write-retry-2",
-        toolName: "write",
-        input: { path: "docs/retry.md", content: test.plan },
-      },
-      test.ctx,
-    );
-
-    expect(second).toBeUndefined();
-  });
-
   it("keeps write disabled after successful tool_execution_end and finishes without the failure notification", async () => {
     const test = setupSavePlan();
     await test.startSave();
@@ -754,24 +520,6 @@ describe("write save preflight", () => {
       test.ctx.notifications.some((n) => n.type === "warning" && n.message.includes("Save plan failed")),
     ).toBe(false);
     expect(test.ctx.statuses.get("pi-plan")).toBe("plan ready");
-  });
-
-  it("allows saving to a root workspace markdown file", async () => {
-    const test = setupSavePlan();
-    await test.startSave();
-
-    const result = await test.mock.fireEvent(
-      "tool_call",
-      {
-        type: "tool_call",
-        toolCallId: "write-root",
-        toolName: "write",
-        input: { path: "plan.md", content: test.plan },
-      },
-      test.ctx,
-    );
-
-    expect(result).toBeUndefined();
   });
 });
 

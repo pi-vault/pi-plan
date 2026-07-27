@@ -1,11 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { lstatSync, realpathSync } from "node:fs";
-import { dirname, relative, resolve, sep } from "node:path";
 import {
   captureProposedPlan,
   sanitizePlanModeContext,
 } from "./core/context.ts";
 import { buildPlanModePrompt } from "./core/prompt.ts";
+import { createSavePlanSession } from "./core/save-plan.ts";
 import { isSafeCommand } from "./core/safety.ts";
 import { createInitialState, enterPlanMode, exitPlanMode, restoreState } from "./core/state.ts";
 import {
@@ -14,7 +13,6 @@ import {
   readSelectedToolNames,
   safeGetActiveTools,
   safeGetAllTools,
-  savePlanToolNames,
   writeSelectedToolNames,
 } from "./core/tools.ts";
 import {
@@ -30,9 +28,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   let state: PlanModeState = createInitialState();
   let previousTools: string[] | undefined;
   let pendingMenuTimer: ReturnType<typeof setTimeout> | undefined;
-  let planToSave: string | undefined;
-  let planWriteCallId: string | undefined;
-  let planSaveSucceeded = false;
+  let savePlanSession: ReturnType<typeof createSavePlanSession> | undefined;
 
   pi.registerFlag("plan", {
     description: "Start in plan mode (read-only exploration)",
@@ -87,20 +83,6 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
   }
 
-  function clearPlanSaveState(): void {
-    planToSave = undefined;
-    planWriteCallId = undefined;
-    planSaveSucceeded = false;
-  }
-
-  function activatePlanSaveTools(): void {
-    pi.setActiveTools(savePlanToolNames(planWriteCallId === undefined && !planSaveSucceeded));
-  }
-
-  function blockPlanSave(reason: string): { block: true; reason: string } {
-    return { block: true, reason };
-  }
-
   function doEnter(ctx: ExtensionContext): void {
     state = enterPlanMode(state);
     activatePlanModeTools();
@@ -110,7 +92,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   function doExit(ctx: ExtensionContext): void {
     clearPendingMenu();
-    clearPlanSaveState();
+    savePlanSession = undefined;
     state = exitPlanMode(state);
     restoreTools();
     persist();
@@ -179,13 +161,9 @@ export default function createExtension(pi: ExtensionAPI): void {
           ctx.ui.notify("Save plan is unavailable while the agent is busy.", "warning");
           break;
         }
-        clearPlanSaveState();
-        planToSave = state.latestPlan;
-        activatePlanSaveTools();
-        sendPlanModeMessage(
-          `Save the current proposed plan. Choose a new lowercase .md filename in the workspace root ${ctx.cwd}. Prefix the filename with today's date followed by a hyphen (YYYY-MM-DD-); use date +%F if needed. Pass only the filename as a relative workspace path; do not use an absolute path or a subdirectory. Write exactly the plan below to that file. Do not add leading or trailing whitespace, including a trailing newline. Make no other changes.\n\n${planToSave}`,
-          ctx,
-        );
+        savePlanSession = createSavePlanSession(state.latestPlan, ctx.cwd);
+        pi.setActiveTools(savePlanSession.toolNames());
+        sendPlanModeMessage(savePlanSession.userPrompt, ctx);
         break;
       case "exit":
         doExit(ctx);
@@ -253,75 +231,19 @@ export default function createExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.on("tool_call", async (event, ctx) => {
+  pi.on("tool_call", async (event, _ctx) => {
     if (!state.enabled) return;
 
     if (event.toolName === "write") {
-      if (planToSave === undefined || planWriteCallId !== undefined || planSaveSucceeded) {
-        return blockPlanSave("Plan mode blocks 'write'. Exit plan mode first with /plan:exit.");
+      if (savePlanSession === undefined) {
+        return {
+          block: true,
+          reason: "Plan mode blocks 'write'. Exit plan mode first with /plan:exit.",
+        };
       }
-
-      const input =
-        typeof event.input === "object" && event.input !== null
-          ? (event.input as Record<string, unknown>)
-          : undefined;
-      if (input === undefined) {
-        return blockPlanSave("Save plan requires an input object with path and content.");
-      }
-
-      const content = input.content;
-      if (typeof content !== "string" || content !== planToSave) {
-        return blockPlanSave("Save plan requires the exact captured plan content.");
-      }
-
-      const filePath = typeof input.path === "string" ? input.path : undefined;
-      if (filePath === undefined) {
-        return blockPlanSave("Save plan requires a string file path.");
-      }
-
-      if (
-        filePath.startsWith("/") ||
-        filePath.startsWith("~") ||
-        filePath.startsWith("@") ||
-        filePath.startsWith("file:") ||
-        /[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/u.test(filePath) ||
-        filePath.split("/").includes("..")
-      ) {
-        return blockPlanSave("Save plan path must be a normal relative workspace path.");
-      }
-
-      if (!/^[a-z0-9_./-]+\.md$/.test(filePath)) {
-        return blockPlanSave("Save plan path must be a lowercase .md file.");
-      }
-
-      try {
-        const workspaceRoot = realpathSync(ctx.cwd);
-        const targetPath = resolve(workspaceRoot, filePath);
-        const parentPath = dirname(targetPath);
-        const parentRealPath = realpathSync(parentPath);
-        const parentStats = lstatSync(parentRealPath, { throwIfNoEntry: false });
-        if (!parentStats?.isDirectory()) {
-          return blockPlanSave("Save plan parent directory must already exist.");
-        }
-
-        const parentRelative = relative(workspaceRoot, parentRealPath);
-        if (parentRelative === ".." || parentRelative.startsWith(`..${sep}`)) {
-          return blockPlanSave("Save plan path must stay inside the workspace.");
-        }
-
-        const targetStats = lstatSync(targetPath, { throwIfNoEntry: false });
-        // ponytail: preflight existence check is not atomic; use an exclusive-create save tool if concurrent no-clobber becomes required.
-        if (targetStats !== undefined) {
-          return blockPlanSave("Save plan target must not already exist.");
-        }
-      } catch {
-        return blockPlanSave("Save plan path must be an existing directory inside the workspace.");
-      }
-
-      Object.freeze(input);
-      planWriteCallId = event.toolCallId;
-      activatePlanSaveTools();
-      return;
+      const result = savePlanSession.authorizeToolCall(event);
+      pi.setActiveTools(savePlanSession.toolNames());
+      return result;
     }
 
     if (event.toolName === "edit") {
@@ -344,22 +266,15 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("tool_execution_end", async (event) => {
-    if (event.toolName !== "write" || event.toolCallId !== planWriteCallId) return;
-
-    planWriteCallId = undefined;
-    if (event.isError) {
-      activatePlanSaveTools();
-    } else {
-      planSaveSucceeded = true;
-    }
+    if (event.toolName !== "write" || savePlanSession === undefined) return;
+    savePlanSession.recordToolExecution(event);
+    pi.setActiveTools(savePlanSession.toolNames());
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
-    if (state.enabled && planToSave !== undefined) {
-      activatePlanSaveTools();
-      return {
-        systemPrompt: `${event.systemPrompt}\n\n${buildPlanModePrompt()}\n\n[PLAN SAVE TURN]\nUse only one approved write call for the exact captured plan. Do not edit, implement, or modify any other file.`,
-      };
+    if (state.enabled && savePlanSession !== undefined) {
+      pi.setActiveTools(savePlanSession.toolNames());
+      return savePlanSession.beforeAgentStart(event);
     }
 
     if (!state.enabled) {
@@ -382,7 +297,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   pi.on("agent_end", async (event, ctx) => {
     if (!state.enabled) return;
-    if (planToSave !== undefined) return;
+    if (savePlanSession !== undefined) return;
     const plan = captureProposedPlan(event.messages);
     if (!plan) return;
     state = { ...state, latestPlan: plan, awaitingAction: true };
@@ -399,9 +314,9 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
-    if (planToSave === undefined) return;
-    const didSave = planSaveSucceeded;
-    clearPlanSaveState();
+    if (savePlanSession === undefined) return;
+    const didSave = savePlanSession.saved();
+    savePlanSession = undefined;
     if (state.enabled) {
       pi.setActiveTools(planModeToolNames(state.selectedToolNames));
     }
@@ -435,10 +350,10 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   pi.on("session_shutdown", async (_event, ctx) => {
     clearPendingMenu();
-    if (planToSave !== undefined && state.enabled) {
+    if (savePlanSession !== undefined && state.enabled) {
       pi.setActiveTools(planModeToolNames(state.selectedToolNames));
     }
-    clearPlanSaveState();
+    savePlanSession = undefined;
     persist();
     clearUi(ctx);
   });
