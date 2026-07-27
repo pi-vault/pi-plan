@@ -41,7 +41,9 @@ function createSelector(tools: PlanToolInfo[], previousSelections: string[] = []
 }
 
 function row(lines: string[], name: string): string {
-  const result = lines.find((line) => line.includes(name));
+  const result = lines.find(
+    (line) => line.includes(name) && (line.includes("[ ]") || line.includes("[•]")),
+  );
   expect(result).toBeDefined();
   return result!;
 }
@@ -139,12 +141,22 @@ describe("createToolSelectorComponent", () => {
     expect(row(matchingLines, "abc")).toContain("abc");
     expect(matchingLines.some((line) => line.includes("[ ] ac"))).toBe(false);
 
-    component.handleInput?.(key.right);
     component.handleInput?.(key.backspace);
+    expect(component.render(80)).toContain("▸ ac");
+    component.handleInput?.(key.right);
     component.handleInput?.("x");
     const noMatchLines = component.render(80);
-    expect(noMatchLines).toContain("▸ abx");
+    expect(noMatchLines).toContain("▸ acx");
     expect(noMatchLines).toContain("No tools match the search.");
+  });
+
+  it("ignores backspace when the search cursor is at zero", () => {
+    const { component } = createSelector([extensionTool("alpha"), extensionTool("beta")]);
+    const before = component.render(80);
+
+    component.handleInput?.(key.backspace);
+
+    expect(component.render(80)).toEqual(before);
   });
 
   it("pages through the complete tool list and clamps at page boundaries", () => {
