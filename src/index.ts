@@ -123,9 +123,8 @@ export default function createExtension(pi: ExtensionAPI): void {
 
   async function runToolSelector(ctx: ExtensionContext): Promise<void> {
     const allTools = safeGetAllTools(pi);
-    const selections = await ctx.ui.custom<string[] | null>((_tui, theme, _keybindings, done) => {
-      let requestRender: () => void = () => {};
-      const component = createToolSelectorComponent({
+    const selections = await ctx.ui.custom<string[] | null>((_tui, theme, _keybindings, done) =>
+      createToolSelectorComponent({
         tools: allTools,
         previousSelections: state.selectedToolNames ?? undefined,
         theme: {
@@ -134,11 +133,8 @@ export default function createExtension(pi: ExtensionAPI): void {
           dim: (text: string) => theme.fg("dim" as never, text),
         },
         done,
-        requestRender: () => requestRender(),
-      });
-      requestRender = () => component.invalidate();
-      return component;
-    });
+      }),
+    );
 
     if (selections === null) {
       ctx.ui.notify("No changes to Plan-mode tools.", "info");
