@@ -1,8 +1,8 @@
 {
   "name": "@pi-vault/pi-plan",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
-  "description": "Pi extension that adds a read-only plan mode for exploring first and producing a decision-complete implementation plan",
+  "description": "Pi extension that adds plan mode for read-only codebase exploration, decision-complete planning, and explicit implementation handoff",
   "author": "Lanh Hoang <lanhhoang@users.noreply.github.com>",
   "license": "MIT",
   "homepage": "https://github.com/pi-vault/pi-plan#readme",
@@ -54,7 +54,7 @@
     "vitest": "^4.1.10"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.82.0",
-    "@earendil-works/pi-tui": ">=0.82.0"
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
   }
 }
