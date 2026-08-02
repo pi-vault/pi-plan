@@ -43,15 +43,17 @@ describe("createInitialState", () => {
 });
 
 describe("enterPlanMode", () => {
-  it("clears a pending plan and awaiting action", () => {
+  it("preserves the latest plan and clears awaiting action", () => {
     const state = {
       ...createInitialState(),
-      latestPlan: "stale plan",
+      latestPlan: "cached plan",
       awaitingAction: true,
     };
+
     const next = enterPlanMode(state);
+
     expect(next.enabled).toBe(true);
-    expect(next.latestPlan).toBeUndefined();
+    expect(next.latestPlan).toBe("cached plan");
     expect(next.awaitingAction).toBe(false);
   });
 

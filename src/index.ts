@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   captureProposedPlan,
-  sanitizePlanModeContext,
+  filterLegacyProposedPlanMessages,
 } from "./core/context.ts";
 import { buildPlanModePrompt } from "./core/prompt.ts";
 import { createSavePlanSession } from "./core/save-plan.ts";
@@ -326,7 +326,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("context", async (event) => {
-    return sanitizePlanModeContext(event.messages, state.enabled);
+    return filterLegacyProposedPlanMessages(event.messages);
   });
 
   pi.on("session_start", async (_event, ctx) => {

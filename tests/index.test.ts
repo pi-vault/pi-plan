@@ -925,137 +925,55 @@ describe("agent_end", () => {
 });
 
 describe("context handler", () => {
-  it("filters proposed-plan messages when plan mode is off", async () => {
+  it.each([false, true])(
+    "preserves assistant plans and filters legacy duplicates when enabled=%s",
+    async (enabled) => {
+      const mock = createMockPi();
+      createExtension(mock.pi);
+      const ctx = createMockContext();
+      if (enabled) await mock.commands.get("plan")!.handler("", ctx.ctx);
+      const assistantPlan = {
+        role: "assistant" as const,
+        content: [{ type: "text" as const, text: "<proposed_plan>\n# Plan\n</proposed_plan>" }],
+      };
+
+      const result = await mock.fireEvent(
+        "context",
+        {
+          type: "context",
+          messages: [
+            { role: "user", content: "plan this" },
+            {
+              role: "custom",
+              customType: "proposed-plan",
+              content: "legacy duplicate",
+              display: true,
+              timestamp: 0,
+            },
+            assistantPlan,
+          ],
+        },
+        ctx,
+      );
+
+      expect(result).toEqual({
+        messages: [{ role: "user", content: "plan this" }, assistantPlan],
+      });
+    },
+  );
+
+  it("returns undefined for clean context", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
     const ctx = createMockContext();
 
-    const result = await mock.fireEvent(
-      "context",
-      {
-        type: "context",
-        messages: [
-          { role: "user", content: "hello" },
-          {
-            role: "custom",
-            customType: "proposed-plan",
-            content: "old plan",
-            display: true,
-            timestamp: 0,
-          },
-          { role: "assistant", content: [{ type: "text", text: "world" }] },
-        ],
-      },
-      ctx,
-    );
-
-    expect(result).toBeDefined();
-    const { messages } = result as { messages: unknown[] };
-    expect(messages).toHaveLength(2);
-  });
-
-  it("keeps proposed-plan messages when plan mode is on", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext();
-    await mock.commands.get("plan")!.handler("", ctx.ctx);
-
-    const result = await mock.fireEvent(
-      "context",
-      {
-        type: "context",
-        messages: [
-          {
-            role: "custom",
-            customType: "proposed-plan",
-            content: "current plan",
-            display: true,
-            timestamp: 0,
-          },
-          { role: "assistant", content: [{ type: "text", text: "world" }] },
-        ],
-      },
-      ctx,
-    );
-
-    // No filtering needed — both messages stay
-    expect(result).toBeUndefined();
-  });
-
-  it("returns undefined when nothing to filter", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext();
-
-    const result = await mock.fireEvent(
-      "context",
-      {
-        type: "context",
-        messages: [
-          { role: "user", content: "hello" },
-          { role: "assistant", content: [{ type: "text", text: "world" }] },
-        ],
-      },
-      ctx,
-    );
-
-    expect(result).toBeUndefined();
-  });
-
-  it("strips proposed_plan blocks from assistant messages when plan mode is off", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext();
-
-    const result = await mock.fireEvent(
-      "context",
-      {
-        type: "context",
-        messages: [
-          {
-            role: "assistant",
-            content: [
-              {
-                type: "text",
-                text: "Here is the plan:\n<proposed_plan>\n# Old Plan\n</proposed_plan>\nEnd.",
-              },
-            ],
-          },
-        ],
-      },
-      ctx,
-    );
-
-    expect(result).toBeDefined();
-    const { messages } = result as {
-      messages: Array<{ content: Array<{ text?: string }> }>;
-    };
-    expect(messages).toHaveLength(1);
-    expect(messages[0]?.content[0]?.text).toBe("Here is the plan:\n\nEnd.");
-  });
-
-  it("does not strip proposed_plan blocks when plan mode is on", async () => {
-    const mock = createMockPi();
-    createExtension(mock.pi);
-    const ctx = createMockContext();
-    await mock.commands.get("plan")!.handler("", ctx.ctx);
-
-    const result = await mock.fireEvent(
-      "context",
-      {
-        type: "context",
-        messages: [
-          {
-            role: "assistant",
-            content: [{ type: "text", text: "<proposed_plan>\n# Current Plan\n</proposed_plan>" }],
-          },
-        ],
-      },
-      ctx,
-    );
-
-    // No filtering — plan mode is on, no state entries to remove
-    expect(result).toBeUndefined();
+    expect(
+      await mock.fireEvent(
+        "context",
+        { type: "context", messages: [{ role: "user", content: "hello" }] },
+        ctx,
+      ),
+    ).toBeUndefined();
   });
 });
 
