@@ -6,25 +6,15 @@ describe("buildPlanModePrompt", () => {
     expect(buildPlanModePrompt()).toContain("[PLAN MODE ACTIVE]");
   });
 
-  it.each([
-    ["no selection", []],
-    ["edit only", ["edit"]],
-    ["write only", ["write"]],
-    ["edit and write", ["edit", "write"]],
-  ] as const)("contains the three planning phases for %s", (_label, selected) => {
-    const prompt = buildPlanModePrompt(selected);
+  it("contains the three planning phases", () => {
+    const prompt = buildPlanModePrompt();
     expect(prompt).toContain("Phase 1 -- Explore");
     expect(prompt).toContain("Phase 2 -- Clarify");
     expect(prompt).toContain("Phase 3 -- Plan");
   });
 
-  it.each([
-    ["no selection", []],
-    ["edit only", ["edit"]],
-    ["write only", ["write"]],
-    ["edit and write", ["edit", "write"]],
-  ] as const)("contains the proposed_plan template for %s", (_label, selected) => {
-    const prompt = buildPlanModePrompt(selected);
+  it("contains the proposed_plan template", () => {
+    const prompt = buildPlanModePrompt();
     expect(prompt).toContain("<proposed_plan>");
     expect(prompt).toContain("</proposed_plan>");
     expect(prompt).toContain("## Summary");
@@ -33,13 +23,8 @@ describe("buildPlanModePrompt", () => {
     expect(prompt).toContain("## Assumptions");
   });
 
-  it.each([
-    ["no selection", []],
-    ["edit only", ["edit"]],
-    ["write only", ["write"]],
-    ["edit and write", ["edit", "write"]],
-  ] as const)("contains the phase-3 'do not ask' guidance for %s", (_label, selected) => {
-    const prompt = buildPlanModePrompt(selected);
+  it("contains the phase-3 'do not ask' guidance", () => {
+    const prompt = buildPlanModePrompt();
     expect(prompt).toContain("Do not ask");
     expect(prompt).toContain("menu handles next steps");
   });

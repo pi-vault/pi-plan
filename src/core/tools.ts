@@ -9,18 +9,11 @@ import {
 const SAFE_PLAN_TOOL_NAMES = ["read", "bash", "grep", "find", "ls"];
 const SAFE_PLAN_TOOL_NAME_SET = new Set(SAFE_PLAN_TOOL_NAMES);
 export const PLAN_MUTATION_TOOL_NAMES = ["edit", "write"] as const;
-const PLAN_MUTATION_TOOL_NAME_SET = new Set<string>(PLAN_MUTATION_TOOL_NAMES);
 const NORMAL_MODE_TOOL_NAMES = ["read", "bash", "edit", "write"];
 const CONFIG_FILENAME = "extensions/plan-tools.json";
 
 export function isPlanMutationToolName(name: string): boolean {
-  return PLAN_MUTATION_TOOL_NAME_SET.has(name);
-}
-
-export function selectedPlanMutationToolNames(
-  selected: readonly string[] = [],
-): string[] {
-  return PLAN_MUTATION_TOOL_NAMES.filter((name) => selected.includes(name));
+  return PLAN_MUTATION_TOOL_NAMES.some((mutationToolName) => mutationToolName === name);
 }
 
 export type PlanToolInfo = Pick<ToolInfo, "name"> & {
@@ -46,7 +39,7 @@ export function getToolPolicy(tool: PlanToolInfo): {
       label: tool.name === "bash" ? "built-in limited" : "built-in",
     };
   }
-  if (PLAN_MUTATION_TOOL_NAME_SET.has(tool.name)) {
+  if (isPlanMutationToolName(tool.name)) {
     return {
       alwaysOn: false,
       toggleable: true,

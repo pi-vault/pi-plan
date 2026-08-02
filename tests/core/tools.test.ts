@@ -13,7 +13,6 @@ import {
   safeGetActiveTools,
   safeGetAllTools,
   savePlanToolNames,
-  selectedPlanMutationToolNames,
   writeSelectedToolNames,
 } from "../../src/core/tools.ts";
 
@@ -32,24 +31,6 @@ describe("isPlanMutationToolName", () => {
     expect(isPlanMutationToolName("read")).toBe(false);
     expect(isPlanMutationToolName("custom")).toBe(false);
     expect(isPlanMutationToolName("")).toBe(false);
-  });
-});
-
-describe("selectedPlanMutationToolNames", () => {
-  it("returns an empty array for an empty or missing selection", () => {
-    expect(selectedPlanMutationToolNames([])).toEqual([]);
-    expect(selectedPlanMutationToolNames()).toEqual([]);
-  });
-
-  it("returns only the selected mutation tools in canonical order", () => {
-    expect(selectedPlanMutationToolNames(["write", "custom", "edit"])).toEqual([
-      "edit",
-      "write",
-    ]);
-  });
-
-  it("ignores non-mutation tools in the selection", () => {
-    expect(selectedPlanMutationToolNames(["bash", "read", "custom"])).toEqual([]);
   });
 });
 

@@ -34,6 +34,7 @@ interface PendingModeTransition {
   enabled: boolean;
   prompt?: string;
   consumePlan?: boolean;
+  applyOnSettled?: boolean;
 }
 
 export default function createExtension(pi: ExtensionAPI): void {
@@ -44,7 +45,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   let pendingModeTransition: PendingModeTransition | undefined;
 
   pi.registerFlag("plan", {
-    description: "Start in plan mode (read-only exploration)",
+    description: "Start in plan mode (read-only by default)",
     type: "boolean",
     default: false,
   });
@@ -145,17 +146,19 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
 
     const waitForIdle = (ctx as Partial<ExtensionCommandContext>).waitForIdle;
-    if (typeof waitForIdle !== "function") {
+    if (typeof waitForIdle !== "function" && !transition.applyOnSettled) {
       ctx.ui.notify("Plan mode change is unavailable until Pi is idle.", "warning");
       return false;
     }
 
     pendingModeTransition = transition;
-    void waitForIdle.call(ctx).then(() => {
-      if (pendingModeTransition !== transition) return;
-      pendingModeTransition = undefined;
-      applyModeTransition(transition, ctx);
-    });
+    if (typeof waitForIdle === "function") {
+      void waitForIdle.call(ctx).then(() => {
+        if (pendingModeTransition !== transition) return;
+        pendingModeTransition = undefined;
+        applyModeTransition(transition, ctx);
+      });
+    }
     ctx.ui.notify("Plan mode change queued until Pi is idle.", "info");
     return false;
   }
@@ -306,7 +309,7 @@ export default function createExtension(pi: ExtensionAPI): void {
       clearPendingMenu();
       const current = pendingModeTransition?.enabled ?? state.enabled;
       const enabled = !current;
-      if (requestModeTransition({ enabled }, ctx)) {
+      if (requestModeTransition({ enabled, applyOnSettled: true }, ctx)) {
         ctx.ui.notify(enabled ? "Plan mode enabled." : "Plan mode disabled.", "info");
       }
     },
@@ -403,6 +406,12 @@ export default function createExtension(pi: ExtensionAPI): void {
       if (!didSave) {
         ctx.ui.notify("Save plan failed or was not completed.", "warning");
       }
+    }
+
+    const transition = pendingModeTransition?.applyOnSettled ? pendingModeTransition : undefined;
+    if (transition !== undefined) {
+      pendingModeTransition = undefined;
+      applyModeTransition(transition, ctx);
     }
   });
 
