@@ -83,10 +83,10 @@ When you choose it:
 | `/plan`          | Turn on Plan mode, or open the Plan mode menu if it is already on.                                        |
 | `/plan <prompt>` | Turn on Plan mode and send `<prompt>` as the planning request.                                            |
 | `/plan:tools`    | Open the optional tool selector. If Plan mode is not active yet, Pi enables it first.                     |
-| `/plan:exit`     | Turn off Plan mode and restore the previous tool set without removing conversation history.                        |
+| `/plan:exit`     | Turn off Plan mode and restore the previous tool set without removing conversation history.               |
 | `pi --plan`      | Start Pi directly in Plan mode.                                                                           |
 
-If Pi is busy, mode-changing commands and menu actions wait until the current turn settles. Only the latest queued switch is applied. Showing a plan and staying in Plan mode remain immediate; tool configuration requires Pi to be idle.
+If Pi is busy, mode-changing commands and actions from the `/plan` menu wait until the current turn settles. Only the latest queued switch is applied. An automatically opened plan-ready menu cannot queue a mode change until Pi is fully settled; retry with `/plan` if warned. Showing a plan and staying in Plan mode remain immediate; tool configuration requires Pi to be idle.
 
 ## Configure Optional Tools
 
