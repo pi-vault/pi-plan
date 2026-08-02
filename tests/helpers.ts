@@ -49,6 +49,7 @@ export interface MockContext {
   inputCalls: Array<{ title: string; placeholder?: string }>;
   customCalls: Array<{ result: unknown }>;
   setIdle(value: boolean): void;
+  resolveIdleWait(): void;
 }
 
 export function createMockPi(options?: {
@@ -122,6 +123,10 @@ export function createMockPi(options?: {
           return result;
         }
       }
+      if (name === "agent_settled") {
+        mockCtx.resolveIdleWait();
+        await Promise.resolve();
+      }
       return result;
     },
   };
@@ -145,6 +150,7 @@ export function createMockContext(options?: {
   const customCalls: Array<{ result: unknown }> = [];
   const selectQueue = [...(options?.selectResponses ?? [])];
   const sessionEntries: SessionEntry[] = options?.entries ?? [];
+  const idleWaiters: Array<() => void> = [];
   let idle = options?.isIdle ?? true;
 
   const mockCtx: MockContext = {
@@ -193,6 +199,10 @@ export function createMockContext(options?: {
       },
       hasUI: options?.hasUI ?? true,
       isIdle: () => idle,
+      async waitForIdle() {
+        if (idle) return;
+        await new Promise<void>((resolve) => idleWaiters.push(resolve));
+      },
       cwd: options?.cwd ?? process.cwd(),
       sessionManager: {
         getEntries: () => sessionEntries,
@@ -206,6 +216,9 @@ export function createMockContext(options?: {
     customCalls,
     setIdle(value: boolean) {
       idle = value;
+    },
+    resolveIdleWait() {
+      for (const resolve of idleWaiters.splice(0)) resolve();
     },
   };
 

@@ -1182,6 +1182,60 @@ describe("plan menu actions", () => {
 });
 
 describe("deferred mode transitions", () => {
+  it("waits for every agent_settled handler before sending the queued prompt", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({ isIdle: false });
+    let finishLaterHandler: (() => void) | undefined;
+    mock.pi.on(
+      "agent_settled",
+      () =>
+        new Promise<void>((resolve) => {
+          finishLaterHandler = resolve;
+        }),
+    );
+
+    await mock.commands.get("plan")!.handler("draft a migration plan", ctx.ctx);
+    ctx.setIdle(true);
+    const settlement = mock.fireEvent("agent_settled", { type: "agent_settled" }, ctx);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mock.userMessages).toHaveLength(0);
+
+    finishLaterHandler?.();
+    await settlement;
+    await Promise.resolve();
+    expect(mock.userMessages).toEqual([
+      { content: "draft a migration plan", options: undefined },
+    ]);
+  });
+
+  it("warns when a busy auto-menu action cannot wait for full settlement", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.implement] });
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    delete (ctx.ctx as { waitForIdle?: unknown }).waitForIdle;
+    ctx.setIdle(false);
+
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [assistantText("<proposed_plan>\n# Plan\n</proposed_plan>")],
+      },
+      ctx,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(ctx.notifications).toContainEqual({
+      message: "Plan mode change is unavailable until Pi is idle.",
+      type: "warning",
+    });
+    expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
+    expect(mock.userMessages).toHaveLength(0);
+  });
+
   it("queues plan entry and its prompt until agent_settled", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);

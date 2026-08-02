@@ -1,4 +1,8 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import {
   captureProposedPlan,
   filterLegacyProposedPlanMessages,
@@ -27,7 +31,7 @@ import { createToolSelectorComponent } from "./tui/tool-selector.ts";
 interface PendingModeTransition {
   enabled: boolean;
   prompt?: string;
-    consumePlan?: boolean;
+  consumePlan?: boolean;
 }
 
 export default function createExtension(pi: ExtensionAPI): void {
@@ -138,7 +142,18 @@ export default function createExtension(pi: ExtensionAPI): void {
       return true;
     }
 
+    const waitForIdle = (ctx as Partial<ExtensionCommandContext>).waitForIdle;
+    if (typeof waitForIdle !== "function") {
+      ctx.ui.notify("Plan mode change is unavailable until Pi is idle.", "warning");
+      return false;
+    }
+
     pendingModeTransition = transition;
+    void waitForIdle.call(ctx).then(() => {
+      if (pendingModeTransition !== transition) return;
+      pendingModeTransition = undefined;
+      applyModeTransition(transition, ctx);
+    });
     ctx.ui.notify("Plan mode change queued until Pi is idle.", "info");
     return false;
   }
@@ -372,10 +387,6 @@ export default function createExtension(pi: ExtensionAPI): void {
         ctx.ui.notify("Save plan failed or was not completed.", "warning");
       }
     }
-
-    const transition = pendingModeTransition;
-    pendingModeTransition = undefined;
-    if (transition) applyModeTransition(transition, ctx);
   });
 
   pi.on("context", async (event) => {
