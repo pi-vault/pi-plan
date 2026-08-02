@@ -5,6 +5,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   getToolPolicy,
+  isPlanMutationToolName,
   normalModeToolNames,
   type PlanToolInfo,
   planModeToolNames,
@@ -12,12 +13,45 @@ import {
   safeGetActiveTools,
   safeGetAllTools,
   savePlanToolNames,
+  selectedPlanMutationToolNames,
   writeSelectedToolNames,
 } from "../../src/core/tools.ts";
 
 function tool(name: string, source = "builtin"): PlanToolInfo {
   return { name, sourceInfo: { source } };
 }
+
+describe("isPlanMutationToolName", () => {
+  it("matches the canonical built-in mutation tools", () => {
+    expect(isPlanMutationToolName("edit")).toBe(true);
+    expect(isPlanMutationToolName("write")).toBe(true);
+  });
+
+  it("rejects non-mutation tool names", () => {
+    expect(isPlanMutationToolName("bash")).toBe(false);
+    expect(isPlanMutationToolName("read")).toBe(false);
+    expect(isPlanMutationToolName("custom")).toBe(false);
+    expect(isPlanMutationToolName("")).toBe(false);
+  });
+});
+
+describe("selectedPlanMutationToolNames", () => {
+  it("returns an empty array for an empty or missing selection", () => {
+    expect(selectedPlanMutationToolNames([])).toEqual([]);
+    expect(selectedPlanMutationToolNames()).toEqual([]);
+  });
+
+  it("returns only the selected mutation tools in canonical order", () => {
+    expect(selectedPlanMutationToolNames(["write", "custom", "edit"])).toEqual([
+      "edit",
+      "write",
+    ]);
+  });
+
+  it("ignores non-mutation tools in the selection", () => {
+    expect(selectedPlanMutationToolNames(["bash", "read", "custom"])).toEqual([]);
+  });
+});
 
 describe("getToolPolicy", () => {
   it("returns the fixed policy for every built-in row", () => {
@@ -35,13 +69,13 @@ describe("getToolPolicy", () => {
     });
     expect(getToolPolicy(tool("edit"))).toEqual({
       alwaysOn: false,
-      toggleable: false,
-      label: "built-in blocked",
+      toggleable: true,
+      label: "user risk: built-in mutation",
     });
     expect(getToolPolicy(tool("write"))).toEqual({
       alwaysOn: false,
-      toggleable: false,
-      label: "built-in blocked",
+      toggleable: true,
+      label: "user risk: built-in mutation",
     });
     expect(getToolPolicy(tool("custom-built-in"))).toEqual({
       alwaysOn: false,
@@ -72,6 +106,18 @@ describe("tool names", () => {
       "find",
       "ls",
       "custom",
+    ]);
+  });
+
+  it("includes edit and write when explicitly selected", () => {
+    expect(planModeToolNames(["edit", "write"])).toEqual([
+      "read",
+      "bash",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
     ]);
   });
 

@@ -63,13 +63,14 @@ describe("createToolSelectorComponent", () => {
         builtinTool("bash"),
         extensionTool("alpha"),
         builtinTool("edit"),
+        builtinTool("write"),
       ],
       ["alpha"],
     );
 
     const lines = component.render(80);
     expect(lines[0]).toContain("Configure Plan-mode tools");
-    expect(lines).toContain("Non-built-in tools run at user risk.");
+    expect(lines).toContain("Optional tools run at user risk.");
     expect(lines.at(-1)).toContain("Toggle");
     expect(lines.at(-1)).toContain("Page");
     expect(lines.findIndex((line) => line.includes("edit"))).toBeLessThan(
@@ -80,7 +81,8 @@ describe("createToolSelectorComponent", () => {
     );
     expect(row(lines, "read")).toContain("[•]");
     expect(row(lines, "edit")).toContain("[ ]");
-    expect(row(lines, "edit")).toContain("built-in blocked");
+    expect(row(lines, "edit")).toContain("user risk: built-in mutation");
+    expect(row(lines, "write")).toContain("user risk: built-in mutation");
     expect(row(lines, "bash")).toContain("built-in limited");
     expect(row(lines, "alpha")).toContain("[•]");
   });
@@ -101,19 +103,36 @@ describe("createToolSelectorComponent", () => {
 
   it("does not toggle always-on or blocked built-ins", () => {
     const { component, done } = createSelector([
-      builtinTool("edit"),
       builtinTool("read"),
+      builtinTool("bash"),
       extensionTool("custom"),
     ]);
 
-    component.handleInput?.(key.space);
+    component.handleInput?.(key.space); // safe
     component.handleInput?.(key.down);
-    component.handleInput?.(key.space);
+    component.handleInput?.(key.space); // safe
     component.handleInput?.(key.down);
-    component.handleInput?.(key.space);
+    component.handleInput?.(key.space); // custom (toggleable)
     component.handleInput?.(key.enter);
 
     expect(done).toHaveBeenCalledWith(["custom"]);
+  });
+
+  it("toggles edit and write independently and returns the selected names", () => {
+    const { component, done } = createSelector([
+      builtinTool("edit"),
+      builtinTool("write"),
+      extensionTool("custom"),
+    ]);
+
+    component.handleInput?.(key.space); // edit on
+    component.handleInput?.(key.down);
+    component.handleInput?.(key.space); // write on
+    component.handleInput?.(key.down);
+    component.handleInput?.(key.space); // custom on
+    component.handleInput?.(key.enter);
+
+    expect(done).toHaveBeenCalledWith(["custom", "edit", "write"]);
   });
 
   it("omits safe plan tool names from restored selections on save", () => {
