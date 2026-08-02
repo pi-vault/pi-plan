@@ -7,7 +7,7 @@
 
 ## Description
 
-`@pi-vault/pi-plan` adds a read-only planning workflow to Pi. Use it to inspect the repo, clarify intent, and return a decision-complete implementation plan before any write-capable work starts. Plan mode is read-only by default; built-in `edit` and `write` are independently disabled until you opt them in.
+`@pi-vault/pi-plan` adds a planning workflow to Pi that is read-only by default. Use it to inspect the repo, clarify intent, and return a decision-complete implementation plan before implementation of the proposed plan starts. Built-in `edit` and `write` are independently disabled until you opt them in.
 
 ## Screenshots
 
@@ -81,7 +81,7 @@ When you choose it:
 - Pi asks the agent to choose a new lowercase `.md` filename in the workspace root, typically dated like `YYYY-MM-DD-<topic>.md`.
 - For that save turn only, Pi temporarily allows built-in `write` for the exact captured plan.
 - If the write fails, the agent can retry during the same save turn.
-- After a successful save, `write` is disabled again and Plan mode remains active.
+- After a successful save, the save-only authorization ends, the user's selected Plan-mode tools are restored, and Plan mode remains active.
 - Save-path validation rejects existing targets, broken symlinks, path traversal, and any path that resolves outside the current workspace.
 
 ## Command Reference
@@ -113,7 +113,7 @@ Plan mode keeps the default workflow read-only:
 
 When you opt `edit` and/or `write` into the Plan-mode tool set through `/plan:tools`, the selected mutation tools are authorized only for file changes the user explicitly requests during the current Plan-mode session. The unselected mutation tools stay blocked. Both selections persist across sessions and can be reverted through `/plan:tools`.
 
-The only exception is **Save plan**. During a save turn, Pi narrows active tools back to the safe built-ins and temporarily adds built-in `write` for the exact captured plan only, regardless of any persisted `write` selection. After a successful save, `write` is disabled again and the persisted ordinary-mode selections are restored.
+**Save plan** uses separate authorization. During a save turn, Pi narrows active tools back to the safe built-ins and temporarily adds built-in `write` for the exact captured plan only, regardless of any persisted `write` selection. After a successful save, the save-only authorization ends and the persisted ordinary Plan-mode selections are restored.
 
 Save-path preflight rejects:
 

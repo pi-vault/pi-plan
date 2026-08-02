@@ -4,7 +4,7 @@
 
 **Goal:** Add a conflict-free `Ctrl+Alt+P` Plan-mode shortcut and let users independently opt `edit` and `write` into Plan mode through the existing persisted tool selector.
 
-**Architecture:** Reuse `selectedToolNames` as the single source of truth. A canonical mutation-tool tuple and helpers in `src/core/tools.ts` are consumed by selector policy, prompt generation, and runtime authorization. No new command, state field, dependency, or configuration format is introduced. Save-plan sessions retain their exact-content, write-only authorization and take precedence over ordinary mutation-tool selection.
+**Architecture:** Reuse `selectedToolNames` as the single source of truth. A canonical mutation-tool tuple and name guard in `src/core/tools.ts` are consumed by selector policy, prompt generation, and runtime authorization. No new command, state field, dependency, or configuration format is introduced. Save-plan sessions retain their exact-content, write-only authorization and take precedence over ordinary mutation-tool selection.
 
 **Tech Stack:** TypeScript, Pi Extension API, `@earendil-works/pi-tui`, Vitest, Biome, pnpm.
 
@@ -24,17 +24,12 @@
 
 **Files:** `tests/core/tools.test.ts`, `tests/core/prompt.test.ts`, `tests/tui/tool-selector.test.ts`
 
-- [ ] **Step 1: Specify the canonical mutation helpers in tests.** Add expectations for the planned exports `isPlanMutationToolName` and `selectedPlanMutationToolNames`:
+- [ ] **Step 1: Specify the canonical mutation guard in tests.** Add expectations for the planned export `isPlanMutationToolName`:
 
 ```ts
 expect(isPlanMutationToolName("edit")).toBe(true);
 expect(isPlanMutationToolName("write")).toBe(true);
 expect(isPlanMutationToolName("bash")).toBe(false);
-expect(selectedPlanMutationToolNames([])).toEqual([]);
-expect(selectedPlanMutationToolNames(["write", "custom", "edit"])).toEqual([
-  "edit",
-  "write",
-]);
 ```
 
 - [ ] **Step 2: Replace blocked-policy expectations.** In `tests/core/tools.test.ts`, assert that both built-in `edit` and `write` return exactly `{ alwaysOn: false, toggleable: true, label: "user risk: built-in mutation" }`. Keep safe built-ins always-on and extension tools user-risk optional. Assert `planModeToolNames(["edit", "write"])` returns `read`, `bash`, `grep`, `find`, `ls`, `edit`, `write` in that order.
@@ -82,24 +77,17 @@ Expected: the new assertions fail against the current blocked-tool and static-pr
 
 ```ts
 export const PLAN_MUTATION_TOOL_NAMES = ["edit", "write"] as const;
-const PLAN_MUTATION_TOOL_NAME_SET = new Set<string>(PLAN_MUTATION_TOOL_NAMES);
 
 export function isPlanMutationToolName(name: string): boolean {
-  return PLAN_MUTATION_TOOL_NAME_SET.has(name);
-}
-
-export function selectedPlanMutationToolNames(
-  selected: readonly string[] = [],
-): string[] {
-  return PLAN_MUTATION_TOOL_NAMES.filter((name) => selected.includes(name));
+  return PLAN_MUTATION_TOOL_NAMES.some((mutationToolName) => mutationToolName === name);
 }
 ```
 
-Replace `BLOCKED_TOOL_NAMES` with this shared set. `getToolPolicy` must return the user-risk mutation policy for both names. Do not add either mutation tool to `SAFE_PLAN_TOOL_NAMES`; `planModeToolNames` must include them only when selected. Existing JSON persistence should then store and restore `edit: true` and `write: true` without schema changes.
+Replace `BLOCKED_TOOL_NAMES` with this tuple and use the guard from `getToolPolicy`. `getToolPolicy` must return the user-risk mutation policy for both names. Do not add either mutation tool to `SAFE_PLAN_TOOL_NAMES`; `planModeToolNames` must include them only when selected. Existing JSON persistence should then store and restore `edit: true` and `write: true` without schema changes.
 
 - [ ] **Step 2: Update selector copy without changing interaction mechanics.** Change the selector subtitle to `Optional tools run at user risk.`. Keep Space gated by `getToolPolicy(tool).toggleable` and keep safe-tool filtering on Enter; selected `edit`/`write` names must be returned as optional selections.
 
-- [ ] **Step 3: Make `buildPlanModePrompt` selection-aware.** Change the function signature to `buildPlanModePrompt(selectedToolNames: readonly string[] = [])` and derive enabled names with `selectedPlanMutationToolNames(selectedToolNames)`. Replace the static mutation and exit-rule text with these exact branches:
+- [ ] **Step 3: Make `buildPlanModePrompt` selection-aware.** Change the function signature to `buildPlanModePrompt(selectedToolNames: readonly string[] = [])` and derive enabled names by filtering `PLAN_MUTATION_TOOL_NAMES`. Replace the static mutation and exit-rule text with these exact branches:
 
 ```ts
 const mutationRules =
@@ -123,7 +111,7 @@ Keep the existing phases, proposed-plan template, Bash restriction, and mode-tra
 
 - [ ] **Step 1: Extend the Pi test double.** Add a registered-shortcut type whose handler accepts `ExtensionContext`, add `shortcuts: Map<string, RegisteredShortcut>` to `MockPi`, and implement `registerShortcut` by storing each registration under its string key.
 
-- [ ] **Step 2: Add failing shortcut tests.** In `tests/index.test.ts`, assert `mock.shortcuts.has("ctrl+alt+p")`, invoke its handler twice while idle, and verify status changes from `plan active` to cleared. Add a busy test that presses once, verifies the queued notification, settles the agent, and verifies the mode changes; press twice while busy and verify the second target cancels the first.
+- [ ] **Step 2: Add failing shortcut tests.** In `tests/index.test.ts`, assert `mock.shortcuts.has("ctrl+alt+p")`, invoke its handler twice while idle, and verify status changes from `plan active` to cleared. Add a busy test using a production-shaped `ExtensionContext` without command-only `waitForIdle()`: press once, verify the queued notification, settle the agent, and verify the mode changes; press twice while busy and verify the second target cancels the first.
 
 - [ ] **Step 3: Add failing authorization tests.** Cover all four selection states in `tests/index.test.ts`: default `edit` and `write` calls block; edit-only permits edit but blocks write; write-only permits write but blocks edit; both permit both. Assert active tools match the same selections and `before_agent_start` includes the same prompt rules.
 
@@ -146,7 +134,7 @@ pi.registerShortcut(Key.ctrlAlt("p"), {
     clearPendingMenu();
     const current = pendingModeTransition?.enabled ?? state.enabled;
     const enabled = !current;
-    if (requestModeTransition({ enabled }, ctx)) {
+    if (requestModeTransition({ enabled, applyOnSettled: true }, ctx)) {
       ctx.ui.notify(
         enabled ? "Plan mode enabled." : "Plan mode disabled.",
         "info",
@@ -156,7 +144,7 @@ pi.registerShortcut(Key.ctrlAlt("p"), {
 });
 ```
 
-Pi 0.83’s extension runner confirms this key is not reserved; Pi’s bundled Plan-mode example uses the same shortcut. Do not register Shift-Tab because Pi reserves it for `app.thinking.cycle`.
+Pi 0.83’s extension runner confirms this key is not reserved; Pi’s bundled Plan-mode example uses the same shortcut. Do not register Shift-Tab because Pi reserves it for `app.thinking.cycle`. The transition marker enables a shortcut-only fallback: command contexts continue using `waitForIdle()`, while busy shortcut contexts store the latest transition for `agent_settled` because Pi does not expose `waitForIdle()` on `ExtensionContext`. Keep other non-command contexts on the existing warning path so prompt-bearing transitions never run before all settlement handlers finish.
 
 - [ ] **Step 7: Replace unconditional mutation blocking.** In `src/index.ts`, handle Save plan first: route `write` to `savePlanSession.authorizeToolCall`, block `edit`, and do not allow ordinary mutation authorization during that session. Outside Save plan, for any `isPlanMutationToolName(event.toolName)`, return `undefined` only when `state.selectedToolNames?.includes(event.toolName)` is true; otherwise return the existing Plan-mode block result. Leave Bash validation unchanged.
 
