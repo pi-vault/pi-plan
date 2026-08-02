@@ -8,7 +8,11 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { AgentEndEvent } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentEndEvent,
+  ExtensionCommandContext,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import createExtension from "../src/index.ts";
 import { PLAN_MENU_LABELS } from "../src/tui/menus.ts";
@@ -22,12 +26,20 @@ function assistantText(
   return { role: "assistant", content: [{ type: "text", text }] };
 }
 
+function shortcutContext(ctx: ExtensionCommandContext): ExtensionContext {
+  const { waitForIdle: _waitForIdle, ...baseContext } = ctx;
+  return baseContext;
+}
+
 describe("createExtension", () => {
   it("registers the plan flag", () => {
     const mock = createMockPi();
     createExtension(mock.pi);
     expect(mock.flags.has("plan")).toBe(true);
     expect(mock.flags.get("plan")?.type).toBe("boolean");
+    expect(mock.flags.get("plan")?.description).toBe(
+      "Start in plan mode (read-only by default)",
+    );
   });
 
   it("registers plan, plan:exit, and plan:tools commands", () => {
@@ -1879,5 +1891,323 @@ describe("plan save lifecycle", () => {
     );
     expect(mock.activeTools).not.toContain("write");
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+  });
+});
+
+describe("Ctrl+Alt+P shortcut", () => {
+  it("registers the conflict-free Plan-mode shortcut", () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    expect(mock.shortcuts.has("ctrl+alt+p")).toBe(true);
+  });
+
+  it("toggles plan mode on and off while idle", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+
+    const handler = mock.shortcuts.get("ctrl+alt+p")!.handler;
+    await handler(ctx.ctx);
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+    expect(
+      ctx.notifications.some((n) => n.type === "info" && n.message.includes("Plan mode enabled")),
+    ).toBe(true);
+
+    await handler(ctx.ctx);
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+    expect(
+      ctx.notifications.some((n) => n.type === "info" && n.message.includes("Plan mode disabled")),
+    ).toBe(true);
+  });
+
+  it("queues a busy toggle and applies it once the agent settles", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({ isIdle: false });
+
+    const handler = mock.shortcuts.get("ctrl+alt+p")!.handler;
+    await handler(shortcutContext(ctx.ctx));
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+    expect(
+      ctx.notifications.some((n) => n.message.includes("queued")),
+    ).toBe(true);
+
+    ctx.setIdle(true);
+    await mock.fireEvent("agent_settled", { type: "agent_settled" }, ctx);
+
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+  });
+
+  it("lets the latest busy toggle cancel a queued toggle", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({ isIdle: false });
+
+    const handler = mock.shortcuts.get("ctrl+alt+p")!.handler;
+    const shortcutCtx = shortcutContext(ctx.ctx);
+    await handler(shortcutCtx); // queued enable
+    await handler(shortcutCtx); // queued disable (cancels first)
+    ctx.setIdle(true);
+    await mock.fireEvent("agent_settled", { type: "agent_settled" }, ctx);
+
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+    expect(mock.activeTools).toContain("write");
+  });
+
+  it("does not register Shift-Tab as a Plan-mode shortcut", () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    expect(mock.shortcuts.has("shift+tab")).toBe(false);
+  });
+});
+
+describe("mutation-tool permission states", () => {
+  const tempDirs: string[] = [];
+  afterEach(() => {
+    for (const path of tempDirs.splice(0)) rmSync(path, { recursive: true, force: true });
+    delete process.env.PI_CODING_AGENT_DIR;
+  });
+
+  async function startWith(selected: readonly ("edit" | "write")[]) {
+    const tempDir = mkdtempSync(join(tmpdir(), "pi-plan-ctrl-"));
+    tempDirs.push(tempDir);
+    process.env.PI_CODING_AGENT_DIR = tempDir;
+    mkdirSync(join(tempDir, "extensions"), { recursive: true });
+    writeFileSync(
+      join(tempDir, "extensions", "plan-tools.json"),
+      JSON.stringify(Object.fromEntries(["read", "bash", ...selected].map((name) => [name, true]))),
+    );
+
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    return { mock, ctx };
+  }
+
+  it.each([
+    ["neither", [], false, false],
+    ["edit only", ["edit"], true, false],
+    ["write only", ["write"], false, true],
+    ["both", ["edit", "write"], true, true],
+  ] as const)("enforces the %s selection", async (_label, selected, editAllowed, writeAllowed) => {
+    const { mock, ctx } = await startWith(selected);
+
+    for (const [toolName, allowed] of [
+      ["edit", editAllowed],
+      ["write", writeAllowed],
+    ] as const) {
+      expect(mock.activeTools.includes(toolName)).toBe(allowed);
+      const result = await mock.fireEvent(
+        "tool_call",
+        { type: "tool_call", toolCallId: `${toolName}-call`, toolName, input: {} },
+        ctx,
+      );
+      if (allowed) expect(result).toBeUndefined();
+      else expect(result).toEqual(expect.objectContaining({ block: true }));
+    }
+  });
+
+  it("injects selection-aware prompt rules in before_agent_start", async () => {
+    const { mock, ctx } = await startWith(["edit", "write"]);
+    const result = await mock.fireEvent(
+      "before_agent_start",
+      { type: "before_agent_start", systemPrompt: "base" },
+      ctx,
+    );
+
+    const { systemPrompt } = result as { systemPrompt: string };
+    expect(systemPrompt).toContain("Enabled mutation tools: edit, write.");
+    expect(systemPrompt).toContain("Unselected mutation tools remain blocked.");
+  });
+});
+
+describe("persisted mutation-tool selections", () => {
+  const tempDirs: string[] = [];
+  afterEach(() => {
+    for (const path of tempDirs.splice(0)) rmSync(path, { recursive: true, force: true });
+    delete process.env.PI_CODING_AGENT_DIR;
+  });
+
+  it("round-trips edit and write through the persisted JSON file", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "pi-plan-persist-"));
+    tempDirs.push(tempDir);
+    process.env.PI_CODING_AGENT_DIR = tempDir;
+    mkdirSync(join(tempDir, "extensions"), { recursive: true });
+
+    const mock = createMockPi({
+      allTools: [
+        { name: "read", description: "Read", sourceInfo: { source: "builtin" } },
+        { name: "bash", description: "Bash", sourceInfo: { source: "builtin" } },
+        { name: "edit", description: "Edit", sourceInfo: { source: "builtin" } },
+        { name: "write", description: "Write", sourceInfo: { source: "builtin" } },
+        { name: "my-tool", description: "My tool", sourceInfo: { source: "my-ext" } },
+      ],
+    });
+    createExtension(mock.pi);
+
+    const ctx = createMockContext({ customResult: ["edit", "write", "my-tool"] });
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    await mock.commands.get("plan:tools")!.handler("", ctx.ctx);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const written = JSON.parse(
+      readFileSync(join(tempDir, "extensions", "plan-tools.json"), "utf-8"),
+    );
+    expect(written).toEqual({
+      read: true,
+      bash: true,
+      edit: true,
+      write: true,
+      "my-tool": true,
+    });
+  });
+
+  it("restores persisted edit and write selections on session_start", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "pi-plan-persist-"));
+    tempDirs.push(tempDir);
+    process.env.PI_CODING_AGENT_DIR = tempDir;
+    mkdirSync(join(tempDir, "extensions"), { recursive: true });
+    writeFileSync(
+      join(tempDir, "extensions", "plan-tools.json"),
+      JSON.stringify({ read: true, bash: true, edit: true, write: true }),
+    );
+
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    expect(mock.activeTools).toContain("edit");
+    expect(mock.activeTools).toContain("write");
+
+    const persisted = mock.entries.filter((entry) => entry.customType === "plan-mode-state");
+    expect(persisted.at(-1)?.data).toMatchObject({
+      selectedToolNames: expect.arrayContaining(["edit", "write"]),
+    });
+  });
+
+  it("overrides session-only selections when persisted JSON is present", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "pi-plan-persist-"));
+    tempDirs.push(tempDir);
+    process.env.PI_CODING_AGENT_DIR = tempDir;
+    mkdirSync(join(tempDir, "extensions"), { recursive: true });
+    writeFileSync(
+      join(tempDir, "extensions", "plan-tools.json"),
+      JSON.stringify({ read: true, bash: true, edit: true }),
+    );
+
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      entries: [
+        {
+          type: "custom",
+          customType: "plan-mode-state",
+          data: { enabled: true, selectedToolNames: ["session-only"] },
+          id: "1",
+          parentId: null,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    });
+    await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
+
+    expect(mock.activeTools).toContain("edit");
+    expect(mock.activeTools).not.toContain("session-only");
+  });
+});
+
+describe("Save-plan regression with selected mutation tools", () => {
+  const tempDirs: string[] = [];
+  afterEach(() => {
+    for (const path of tempDirs.splice(0)) rmSync(path, { recursive: true, force: true });
+    delete process.env.PI_CODING_AGENT_DIR;
+  });
+
+  it("still blocks edit during a save turn even when persisted", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "pi-plan-save-"));
+    tempDirs.push(workspace);
+    mkdirSync(join(workspace, "docs"), { recursive: true });
+    process.env.PI_CODING_AGENT_DIR = workspace;
+    mkdirSync(join(workspace, "extensions"), { recursive: true });
+    writeFileSync(
+      join(workspace, "extensions", "plan-tools.json"),
+      JSON.stringify({ read: true, bash: true, edit: true, write: true }),
+    );
+
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      cwd: workspace,
+      selectResponses: [PLAN_MENU_LABELS.save],
+    });
+
+    await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    expect(mock.activeTools).toContain("edit");
+
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [assistantText("<proposed_plan>\n# Save Me\n</proposed_plan>")],
+      },
+      ctx,
+    );
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    // Save turn narrows active tools to safe built-ins + write
+    expect(mock.activeTools).toEqual(
+      expect.arrayContaining(["read", "bash", "grep", "find", "ls", "write"]),
+    );
+    expect(mock.activeTools).not.toContain("edit");
+
+    // edit is still blocked by the save-session policy
+    expect(
+      await mock.fireEvent(
+        "tool_call",
+        { type: "tool_call", toolCallId: "edit-during-save", toolName: "edit", input: {} },
+        ctx,
+      ),
+    ).toEqual(expect.objectContaining({ block: true }));
+  });
+
+  it("restores the user's selected ordinary tools after a save turn settles", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "pi-plan-save-"));
+    tempDirs.push(workspace);
+    mkdirSync(join(workspace, "docs"), { recursive: true });
+    process.env.PI_CODING_AGENT_DIR = workspace;
+    mkdirSync(join(workspace, "extensions"), { recursive: true });
+    writeFileSync(
+      join(workspace, "extensions", "plan-tools.json"),
+      JSON.stringify({ read: true, bash: true, edit: true, write: true }),
+    );
+
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({
+      cwd: workspace,
+      selectResponses: [PLAN_MENU_LABELS.save],
+    });
+
+    await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [assistantText("<proposed_plan>\n# Save Me\n</proposed_plan>")],
+      },
+      ctx,
+    );
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    await mock.fireEvent("agent_settled", { type: "agent_settled" }, ctx);
+
+    expect(mock.activeTools).toContain("edit");
+    expect(mock.activeTools).toContain("write");
   });
 });

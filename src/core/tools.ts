@@ -8,9 +8,13 @@ import {
 
 const SAFE_PLAN_TOOL_NAMES = ["read", "bash", "grep", "find", "ls"];
 const SAFE_PLAN_TOOL_NAME_SET = new Set(SAFE_PLAN_TOOL_NAMES);
-const BLOCKED_TOOL_NAMES = new Set(["edit", "write"]);
+export const PLAN_MUTATION_TOOL_NAMES = ["edit", "write"] as const;
 const NORMAL_MODE_TOOL_NAMES = ["read", "bash", "edit", "write"];
 const CONFIG_FILENAME = "extensions/plan-tools.json";
+
+export function isPlanMutationToolName(name: string): boolean {
+  return PLAN_MUTATION_TOOL_NAMES.some((mutationToolName) => mutationToolName === name);
+}
 
 export type PlanToolInfo = Pick<ToolInfo, "name"> & {
   sourceInfo: Pick<ToolInfo["sourceInfo"], "source">;
@@ -35,8 +39,12 @@ export function getToolPolicy(tool: PlanToolInfo): {
       label: tool.name === "bash" ? "built-in limited" : "built-in",
     };
   }
-  if (BLOCKED_TOOL_NAMES.has(tool.name)) {
-    return { alwaysOn: false, toggleable: false, label: "built-in blocked" };
+  if (isPlanMutationToolName(tool.name)) {
+    return {
+      alwaysOn: false,
+      toggleable: true,
+      label: "user risk: built-in mutation",
+    };
   }
   return { alwaysOn: false, toggleable: true, label: "built-in" };
 }

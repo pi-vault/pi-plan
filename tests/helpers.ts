@@ -18,6 +18,11 @@ interface RegisteredCommand {
   getArgumentCompletions?: (prefix: string) => unknown;
 }
 
+interface RegisteredShortcut {
+  description?: string;
+  handler: (ctx: ExtensionContext) => Promise<void> | void;
+}
+
 type EventHandler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
 
 export interface ToolInfoLike {
@@ -31,6 +36,7 @@ export interface MockPi {
   flags: Map<string, RegisteredFlag>;
   flagValues: Map<string, boolean | string>;
   commands: Map<string, RegisteredCommand>;
+  shortcuts: Map<string, RegisteredShortcut>;
   events: Map<string, EventHandler[]>;
   activeTools: string[];
   allTools: ToolInfoLike[];
@@ -59,6 +65,7 @@ export function createMockPi(options?: {
   const flags = new Map<string, RegisteredFlag>();
   const flagValues = new Map<string, boolean | string>();
   const commands = new Map<string, RegisteredCommand>();
+  const shortcuts = new Map<string, RegisteredShortcut>();
   const events = new Map<string, EventHandler[]>();
   let activeTools = options?.activeTools ?? ["read", "bash", "edit", "write"];
   const allTools: ToolInfoLike[] = options?.allTools ?? [];
@@ -76,6 +83,9 @@ export function createMockPi(options?: {
       },
       registerCommand(name: string, opts: RegisteredCommand) {
         commands.set(name, opts);
+      },
+      registerShortcut(shortcut: string, opts: RegisteredShortcut) {
+        shortcuts.set(shortcut, opts);
       },
       on(event: string, handler: EventHandler) {
         const handlers = events.get(event) ?? [];
@@ -108,6 +118,7 @@ export function createMockPi(options?: {
     flags,
     flagValues,
     commands,
+    shortcuts,
     events,
     activeTools,
     allTools,

@@ -7,7 +7,7 @@
 
 ## Description
 
-`@pi-vault/pi-plan` adds a read-only planning workflow to Pi. Use it to inspect the repo, clarify intent, and return a decision-complete implementation plan before any write-capable work starts.
+`@pi-vault/pi-plan` adds a planning workflow to Pi that is read-only by default. Use it to inspect the repo, clarify intent, and return a decision-complete implementation plan before implementation of the proposed plan starts. Built-in `edit` and `write` are independently disabled until you opt them in.
 
 ## Screenshots
 
@@ -51,6 +51,14 @@ Start Pi directly in Plan mode:
 pi --plan
 ```
 
+Toggle Plan mode with the keyboard:
+
+```text
+Ctrl+Alt+P
+```
+
+`Ctrl+Alt+P` works while the agent is idle and queues a pending toggle when Pi is busy. `Shift+Tab` remains Pi's reserved thinking-level shortcut.
+
 ### Work through a plan
 
 1. Let the agent inspect the repo and ask clarifying questions.
@@ -73,7 +81,7 @@ When you choose it:
 - Pi asks the agent to choose a new lowercase `.md` filename in the workspace root, typically dated like `YYYY-MM-DD-<topic>.md`.
 - For that save turn only, Pi temporarily allows built-in `write` for the exact captured plan.
 - If the write fails, the agent can retry during the same save turn.
-- After a successful save, `write` is disabled again and Plan mode remains active.
+- After a successful save, the save-only authorization ends, the user's selected Plan-mode tools are restored, and Plan mode remains active.
 - Save-path validation rejects existing targets, broken symlinks, path traversal, and any path that resolves outside the current workspace.
 
 ## Command Reference
@@ -90,20 +98,22 @@ If Pi is busy, mode-changing commands and actions from the `/plan` menu wait unt
 
 ## Configure Optional Tools
 
-Safe built-in planning tools are available by default. Use `/plan:tools` to enable additional optional extension tools during planning.
+Safe built-in planning tools are available by default. Use `/plan:tools` to enable additional optional tools during planning.
 
-Your selections persist across Pi sessions. Built-in `edit` and `write` remain blocked in Plan mode even when extra tools are enabled. Non-built-in tools may still expose broader capabilities through their own interfaces, so enable them deliberately.
+Built-in `edit` and `write` are disabled by default. Use `/plan:tools` to opt `edit`, `write`, or both into the active Plan-mode tool set independently. Your selections persist across Pi sessions. When a mutation tool is selected, Plan mode limits it to file changes the user explicitly requests and keeps the unselected mutation tools blocked. Non-built-in tools may still expose broader capabilities through their own interfaces, so enable them deliberately.
 
 ## Safety Boundaries
 
 Plan mode keeps the default workflow read-only:
 
-- built-in `edit` and `write` are blocked
+- built-in `edit` and `write` are blocked by default
 - `bash` is limited to allowlisted read-only commands
 - mutating shell commands are blocked with a Plan-mode error
 - safe built-in planning tools remain available: `read`, `bash`, `grep`, `find`, and `ls`
 
-The only exception is **Save plan**. During a save turn, Pi narrows active tools back to the safe built-ins and temporarily adds built-in `write` for the exact captured plan only. After a successful save, `write` is disabled again.
+When you opt `edit` and/or `write` into the Plan-mode tool set through `/plan:tools`, the selected mutation tools are authorized only for file changes the user explicitly requests during the current Plan-mode session. The unselected mutation tools stay blocked. Both selections persist across sessions and can be reverted through `/plan:tools`.
+
+**Save plan** uses separate authorization. During a save turn, Pi narrows active tools back to the safe built-ins and temporarily adds built-in `write` for the exact captured plan only, regardless of any persisted `write` selection. After a successful save, the save-only authorization ends and the persisted ordinary Plan-mode selections are restored.
 
 Save-path preflight rejects:
 

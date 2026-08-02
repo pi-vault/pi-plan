@@ -3,6 +3,7 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Key } from "@earendil-works/pi-tui";
 import {
   captureProposedPlan,
   filterLegacyProposedPlanMessages,
@@ -12,6 +13,7 @@ import { createSavePlanSession } from "./core/save-plan.ts";
 import { isSafeCommand } from "./core/safety.ts";
 import { createInitialState, enterPlanMode, exitPlanMode, restoreState } from "./core/state.ts";
 import {
+  isPlanMutationToolName,
   normalModeToolNames,
   planModeToolNames,
   readSelectedToolNames,
@@ -32,6 +34,7 @@ interface PendingModeTransition {
   enabled: boolean;
   prompt?: string;
   consumePlan?: boolean;
+  applyOnSettled?: boolean;
 }
 
 export default function createExtension(pi: ExtensionAPI): void {
@@ -42,7 +45,7 @@ export default function createExtension(pi: ExtensionAPI): void {
   let pendingModeTransition: PendingModeTransition | undefined;
 
   pi.registerFlag("plan", {
-    description: "Start in plan mode (read-only exploration)",
+    description: "Start in plan mode (read-only by default)",
     type: "boolean",
     default: false,
   });
@@ -143,17 +146,19 @@ export default function createExtension(pi: ExtensionAPI): void {
     }
 
     const waitForIdle = (ctx as Partial<ExtensionCommandContext>).waitForIdle;
-    if (typeof waitForIdle !== "function") {
+    if (typeof waitForIdle !== "function" && !transition.applyOnSettled) {
       ctx.ui.notify("Plan mode change is unavailable until Pi is idle.", "warning");
       return false;
     }
 
     pendingModeTransition = transition;
-    void waitForIdle.call(ctx).then(() => {
-      if (pendingModeTransition !== transition) return;
-      pendingModeTransition = undefined;
-      applyModeTransition(transition, ctx);
-    });
+    if (typeof waitForIdle === "function") {
+      void waitForIdle.call(ctx).then(() => {
+        if (pendingModeTransition !== transition) return;
+        pendingModeTransition = undefined;
+        applyModeTransition(transition, ctx);
+      });
+    }
     ctx.ui.notify("Plan mode change queued until Pi is idle.", "info");
     return false;
   }
@@ -191,7 +196,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     const msg =
       count === 0
         ? "Plan-mode tools reset to defaults."
-        : `Plan-mode tools updated: ${count} extension tool(s) enabled.`;
+        : `Plan-mode tools updated: ${count} optional tool(s) enabled.`;
     ctx.ui.notify(msg, "info");
   }
 
@@ -252,7 +257,7 @@ export default function createExtension(pi: ExtensionAPI): void {
       if (command) {
         if (!state.enabled) {
           if (requestModeTransition({ enabled: true, prompt: command }, ctx)) {
-            ctx.ui.notify("Plan mode enabled. Write tools disabled.", "info");
+            ctx.ui.notify("Plan mode enabled.", "info");
           }
           return;
         }
@@ -262,7 +267,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
       if (!state.enabled || pendingModeTransition?.enabled === false) {
         if (requestModeTransition({ enabled: true }, ctx)) {
-          ctx.ui.notify("Plan mode enabled. Write tools disabled.", "info");
+          ctx.ui.notify("Plan mode enabled.", "info");
         }
         return;
       }
@@ -292,32 +297,47 @@ export default function createExtension(pi: ExtensionAPI): void {
       }
       if (!state.enabled) {
         doEnter(ctx);
-        ctx.ui.notify("Plan mode enabled. Write tools disabled.", "info");
+        ctx.ui.notify("Plan mode enabled.", "info");
       }
       await runToolSelector(ctx);
+    },
+  });
+
+  pi.registerShortcut(Key.ctrlAlt("p"), {
+    description: "Toggle Plan mode",
+    handler: async (ctx) => {
+      clearPendingMenu();
+      const current = pendingModeTransition?.enabled ?? state.enabled;
+      const enabled = !current;
+      if (requestModeTransition({ enabled, applyOnSettled: true }, ctx)) {
+        ctx.ui.notify(enabled ? "Plan mode enabled." : "Plan mode disabled.", "info");
+      }
     },
   });
 
   pi.on("tool_call", async (event, _ctx) => {
     if (!state.enabled) return;
 
-    if (event.toolName === "write") {
-      if (savePlanSession === undefined) {
+    if (savePlanSession !== undefined) {
+      if (event.toolName === "write") {
+        const result = savePlanSession.authorizeToolCall(event);
+        pi.setActiveTools(savePlanSession.toolNames());
+        return result;
+      }
+      if (event.toolName === "edit") {
         return {
           block: true,
-          reason: "Plan mode blocks 'write'. Exit plan mode first with /plan:exit.",
+          reason: "Save plan does not allow 'edit'. Use only the approved write call.",
         };
       }
-      const result = savePlanSession.authorizeToolCall(event);
-      pi.setActiveTools(savePlanSession.toolNames());
-      return result;
-    }
-
-    if (event.toolName === "edit") {
-      return {
-        block: true,
-        reason: `Plan mode blocks '${event.toolName}'. Exit plan mode first with /plan:exit.`,
-      };
+    } else if (isPlanMutationToolName(event.toolName)) {
+      const selected = state.selectedToolNames ?? [];
+      if (!selected.includes(event.toolName)) {
+        return {
+          block: true,
+          reason: `Plan mode blocks '${event.toolName}'. Enable it with /plan:tools, or exit plan mode first with /plan:exit.`,
+        };
+      }
     }
 
     if (event.toolName === "bash") {
@@ -354,7 +374,7 @@ export default function createExtension(pi: ExtensionAPI): void {
 
     pi.setActiveTools(planModeToolNames(state.selectedToolNames));
     return {
-      systemPrompt: `${event.systemPrompt}\n\n${buildPlanModePrompt()}`,
+      systemPrompt: `${event.systemPrompt}\n\n${buildPlanModePrompt(state.selectedToolNames)}`,
     };
   });
 
@@ -386,6 +406,12 @@ export default function createExtension(pi: ExtensionAPI): void {
       if (!didSave) {
         ctx.ui.notify("Save plan failed or was not completed.", "warning");
       }
+    }
+
+    const transition = pendingModeTransition?.applyOnSettled ? pendingModeTransition : undefined;
+    if (transition !== undefined) {
+      pendingModeTransition = undefined;
+      applyModeTransition(transition, ctx);
     }
   });
 

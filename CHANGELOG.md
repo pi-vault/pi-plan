@@ -4,11 +4,17 @@ All notable changes to `@pi-vault/pi-plan` are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Register a conflict-free `Ctrl+Alt+P` shortcut to toggle Plan mode (idle or queued when busy).
+- Let users independently opt `edit` and `write` into Plan mode through the existing persisted optional tool selector.
+
 ### Changed
 
 - Preserve complete conversation context when switching between Plan mode and normal mode; old display-only proposed-plan messages remain filtered to avoid duplicate context.
 - Defer mode changes requested during an active turn until Pi is idle, with the latest queued request taking precedence.
 - Submit `Implement the plan.` in the retained conversation instead of copying the full cached plan into a new handoff prompt.
+- Plan-mode prompt rules and runtime authorization are now driven by the user's selected optional tools so the prompt no longer contradicts explicit opt-in behavior.
 
 ## [0.4.0] - 2026-07-26
 

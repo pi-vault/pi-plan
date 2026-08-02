@@ -10,7 +10,7 @@ const HELP_BASE =
   "Toggle: Space  •  Navigate: ↑/↓  •  Page: ←/→  •  Save: Enter  •  Cancel: Esc";
 const HELP_SEARCHING =
   "Toggle: Space  •  Navigate: ↑/↓  •  Cursor: ←/→  •  Save: Enter  •  Cancel: Esc";
-const SUBTITLE = "Non-built-in tools run at user risk.";
+const SUBTITLE = "Optional tools run at user risk.";
 const SEARCH_PLACEHOLDER = "Type to search";
 
 interface ToolSelectorTheme {
@@ -55,7 +55,6 @@ function clampCursor(state: ToolSelectorState, index: number): number {
 }
 
 function policyColor(label: string): string {
-  if (label === "built-in blocked") return "error";
   if (label === "built-in limited" || label.startsWith("user risk")) return "warning";
   return "dim";
 }
@@ -157,9 +156,10 @@ export function createToolSelectorComponent(options: {
         return;
       }
       if (matchesKey(data, Key.enter)) {
-        options.done(
-          [...state.selectedNames].filter((name) => !SAFE_PLAN_TOOL_NAMES.has(name)),
-        );
+        const sortedNames = [...state.selectedNames]
+          .filter((name) => !SAFE_PLAN_TOOL_NAMES.has(name))
+          .sort((a, b) => a.localeCompare(b));
+        options.done(sortedNames);
         return;
       }
       if (matchesKey(data, Key.up)) {
