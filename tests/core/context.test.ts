@@ -2,7 +2,7 @@ import type { AgentEndEvent, ContextEvent } from "@earendil-works/pi-coding-agen
 import { describe, expect, it } from "vitest";
 import {
   captureProposedPlan,
-  sanitizePlanModeContext,
+  filterLegacyProposedPlanMessages,
 } from "../../src/core/context.ts";
 
 type AgentMessage = ContextEvent["messages"][number];
@@ -90,61 +90,23 @@ describe("captureProposedPlan", () => {
     ).toBe("# \nLatest");
   });
 });
-describe("sanitizePlanModeContext", () => {
-  it("removes legacy proposed-plan messages and standalone blocks while disabled", () => {
-    const messages = [
-      user("hello"),
-      proposedPlanMessage("old plan"),
-      assistantText(
-        "Intro mentions <proposed_plan> inline.\n<proposed_plan>\n# Old\n</proposed_plan>\nAfter.",
-      ),
-    ];
 
-    expect(sanitizePlanModeContext(messages, false)).toEqual({
-      messages: [
-        user("hello"),
-        assistantText("Intro mentions <proposed_plan> inline.\n\nAfter."),
-      ],
+describe("filterLegacyProposedPlanMessages", () => {
+  it("removes only legacy custom plan messages", () => {
+    const plan = assistantText("<proposed_plan>\n# Current\n</proposed_plan>");
+    const messages = [user("hello"), proposedPlanMessage("old duplicate"), plan];
+
+    expect(filterLegacyProposedPlanMessages(messages)).toEqual({
+      messages: [user("hello"), plan],
     });
   });
 
-  it("removes a standalone block split across text parts", () => {
+  it("leaves assistant plan blocks and clean context unchanged", () => {
     const messages = [
-      assistant([
-        { type: "text", text: "Before.\n<proposed_plan>\n# " },
-        { type: "thinking", thinking: "reasoning" },
-        { type: "text", text: "Old\n</proposed_plan>\nAfter." },
-      ]),
+      user("<proposed_plan>\n# User text\n</proposed_plan>"),
+      assistantText("Before\n<proposed_plan>\n# Assistant plan\n</proposed_plan>\nAfter"),
     ];
 
-    expect(sanitizePlanModeContext(messages, false)).toEqual({
-      messages: [
-        assistant([
-          { type: "text", text: "Before.\n" },
-          { type: "thinking", thinking: "reasoning" },
-          { type: "text", text: "\nAfter." },
-        ]),
-      ],
-    });
-  });
-
-  it("preserves user messages, non-text content, and malformed blocks", () => {
-    const messages = [
-      user("<proposed_plan>\n# User Plan\n</proposed_plan>"),
-      assistant([
-        { type: "thinking", thinking: "reasoning" },
-        { type: "text", text: "<proposed_plan># Inline</proposed_plan>" },
-        { type: "toolCall", id: "call-1", name: "read", arguments: {} },
-      ]),
-    ];
-
-    expect(sanitizePlanModeContext(messages, false)).toBeUndefined();
-  });
-
-  it("returns undefined without changes while enabled or when disabled context is clean", () => {
-    const messages = [assistantText("<proposed_plan>\n# Current\n</proposed_plan>")];
-
-    expect(sanitizePlanModeContext(messages, true)).toBeUndefined();
-    expect(sanitizePlanModeContext([assistantText("No plan")], false)).toBeUndefined();
+    expect(filterLegacyProposedPlanMessages(messages)).toBeUndefined();
   });
 });

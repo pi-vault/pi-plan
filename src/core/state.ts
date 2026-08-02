@@ -12,7 +12,7 @@ export function createInitialState(): PlanModeState {
 }
 
 export function enterPlanMode(state: PlanModeState): PlanModeState {
-  return { ...state, enabled: true, latestPlan: undefined, awaitingAction: false };
+  return { ...state, enabled: true, awaitingAction: false };
 }
 
 export function exitPlanMode(state: PlanModeState): PlanModeState {

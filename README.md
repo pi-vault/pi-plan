@@ -56,10 +56,10 @@ pi --plan
 1. Let the agent inspect the repo and ask clarifying questions.
 2. When the plan is ready, you receive exactly one `<proposed_plan>` block.
 3. While the agent is idle, choose what to do next:
-   - **Implement this plan** - turn Plan mode off, restore full tool access, and send the full proposed plan back into the conversation as the implementation instruction.
+   - **Implement this plan** - turn Plan mode off, restore full tool access, and submit `Implement the plan.` in the same conversation.
    - **Save plan** - keep Plan mode active and write the exact current plan to one new lowercase `.md` file in the workspace root. The agent chooses the filename; you do not provide a path.
    - **Stay in Plan mode** - keep planning.
-   - **Exit Plan mode** - leave planning and preserve the latest plan for only the first normal-mode turn.
+   - **Exit Plan mode** - leave planning without removing prior user or assistant messages. The latest-plan menu cache remains available until the next turn starts.
    - **Show latest proposed plan** - review the current plan again.
    - **Configure tools** - change which optional tools are available during planning.
 
@@ -83,8 +83,10 @@ When you choose it:
 | `/plan`          | Turn on Plan mode, or open the Plan mode menu if it is already on.                                        |
 | `/plan <prompt>` | Turn on Plan mode and send `<prompt>` as the planning request.                                            |
 | `/plan:tools`    | Open the optional tool selector. If Plan mode is not active yet, Pi enables it first.                     |
-| `/plan:exit`     | Turn off Plan mode, restore the previous tool set, and preserve the latest plan for one normal-mode turn. |
+| `/plan:exit`     | Turn off Plan mode and restore the previous tool set without removing conversation history.               |
 | `pi --plan`      | Start Pi directly in Plan mode.                                                                           |
+
+If Pi is busy, mode-changing commands and actions from the `/plan` menu wait until the current turn settles. Only the latest queued switch is applied. An automatically opened plan-ready menu cannot queue a mode change until Pi is fully settled; retry with `/plan` if warned. Showing a plan and staying in Plan mode remain immediate; tool configuration requires Pi to be idle.
 
 ## Configure Optional Tools
 
