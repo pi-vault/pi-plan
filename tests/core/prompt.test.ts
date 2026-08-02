@@ -6,26 +6,25 @@ describe("buildPlanModePrompt", () => {
     expect(buildPlanModePrompt()).toContain("[PLAN MODE ACTIVE]");
   });
 
-  it("contains mode rules", () => {
-    const prompt = buildPlanModePrompt();
-    expect(prompt).toContain("Do not edit files");
-    expect(prompt).toContain("/plan exit");
-    expect(prompt).toContain("Bash is restricted to read-only commands");
-  });
-
-  it("contains skill awareness line", () => {
-    expect(buildPlanModePrompt()).toContain("Skills and tools listed in the system prompt");
-  });
-
-  it("contains the three planning phases", () => {
-    const prompt = buildPlanModePrompt();
+  it.each([
+    ["no selection", []],
+    ["edit only", ["edit"]],
+    ["write only", ["write"]],
+    ["edit and write", ["edit", "write"]],
+  ] as const)("contains the three planning phases for %s", (_label, selected) => {
+    const prompt = buildPlanModePrompt(selected);
     expect(prompt).toContain("Phase 1 -- Explore");
     expect(prompt).toContain("Phase 2 -- Clarify");
     expect(prompt).toContain("Phase 3 -- Plan");
   });
 
-  it("contains the proposed_plan template block", () => {
-    const prompt = buildPlanModePrompt();
+  it.each([
+    ["no selection", []],
+    ["edit only", ["edit"]],
+    ["write only", ["write"]],
+    ["edit and write", ["edit", "write"]],
+  ] as const)("contains the proposed_plan template for %s", (_label, selected) => {
+    const prompt = buildPlanModePrompt(selected);
     expect(prompt).toContain("<proposed_plan>");
     expect(prompt).toContain("</proposed_plan>");
     expect(prompt).toContain("## Summary");
@@ -34,8 +33,69 @@ describe("buildPlanModePrompt", () => {
     expect(prompt).toContain("## Assumptions");
   });
 
-  it("tells the agent not to ask should I proceed", () => {
-    expect(buildPlanModePrompt()).toContain("Do not ask");
-    expect(buildPlanModePrompt()).toContain("menu handles next steps");
+  it.each([
+    ["no selection", []],
+    ["edit only", ["edit"]],
+    ["write only", ["write"]],
+    ["edit and write", ["edit", "write"]],
+  ] as const)("contains the phase-3 'do not ask' guidance for %s", (_label, selected) => {
+    const prompt = buildPlanModePrompt(selected);
+    expect(prompt).toContain("Do not ask");
+    expect(prompt).toContain("menu handles next steps");
+  });
+
+  it("keeps the strict no-mutation rule with no selection", () => {
+    expect(buildPlanModePrompt([])).toContain(
+      "Do not edit files, write files, or execute the plan.",
+    );
+  });
+
+  it("names the enabled mutation tools when selected", () => {
+    expect(buildPlanModePrompt(["edit"])).toContain(
+      "Enabled mutation tools: edit.",
+    );
+    expect(buildPlanModePrompt(["write"])).toContain(
+      "Enabled mutation tools: write.",
+    );
+    expect(buildPlanModePrompt(["edit", "write"])).toContain(
+      "Enabled mutation tools: edit, write.",
+    );
+  });
+
+  for (const selected of [[], ["edit"], ["write"], ["edit", "write"]] as const) {
+    it(`reaffirms unselected mutation tools remain blocked for ${JSON.stringify(selected)}`, () => {
+      expect(buildPlanModePrompt(selected)).toContain(
+        "Unselected mutation tools remain blocked. Do not execute the plan.",
+      );
+    });
+  }
+
+  it("keeps bash restrictions regardless of selection", () => {
+    for (const selected of [[], ["edit"], ["write"], ["edit", "write"]] as const) {
+      expect(buildPlanModePrompt(selected)).toContain("Bash is restricted to read-only commands.");
+    }
+  });
+
+  it("warns about skills blocked by unavailable or mutating tools in every state", () => {
+    for (const selected of [[], ["edit"], ["write"], ["edit", "write"]] as const) {
+      expect(buildPlanModePrompt(selected)).toContain(
+        "Skills requiring unavailable tools or mutating bash commands will be blocked.",
+      );
+    }
+  });
+
+  it("reminds to exit for any change request with no selection", () => {
+    expect(buildPlanModePrompt([])).toContain(
+      'If the user asks you to make changes or implement something, remind them to exit Plan Mode first by running /plan and choosing "Implement this plan", or by running /plan exit.',
+    );
+  });
+
+  it("narrows the exit reminder to the proposed plan when tools are selected", () => {
+    expect(buildPlanModePrompt(["edit"])).toContain(
+      'If the user asks you to implement the proposed plan, remind them to exit Plan Mode first by running /plan and choosing "Implement this plan", or by running /plan exit.',
+    );
+    expect(buildPlanModePrompt(["edit"])).not.toContain(
+      "If the user asks you to make changes or implement something",
+    );
   });
 });
