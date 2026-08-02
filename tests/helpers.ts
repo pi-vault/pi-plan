@@ -48,6 +48,7 @@ export interface MockContext {
   selectCalls: Array<{ title: string; options: string[] }>;
   inputCalls: Array<{ title: string; placeholder?: string }>;
   customCalls: Array<{ result: unknown }>;
+  setIdle(value: boolean): void;
 }
 
 export function createMockPi(options?: {
@@ -144,6 +145,7 @@ export function createMockContext(options?: {
   const customCalls: Array<{ result: unknown }> = [];
   const selectQueue = [...(options?.selectResponses ?? [])];
   const sessionEntries: SessionEntry[] = options?.entries ?? [];
+  let idle = options?.isIdle ?? true;
 
   const mockCtx: MockContext = {
     ctx: {
@@ -190,7 +192,7 @@ export function createMockContext(options?: {
         },
       },
       hasUI: options?.hasUI ?? true,
-      isIdle: () => options?.isIdle ?? true,
+      isIdle: () => idle,
       cwd: options?.cwd ?? process.cwd(),
       sessionManager: {
         getEntries: () => sessionEntries,
@@ -202,6 +204,9 @@ export function createMockContext(options?: {
     selectCalls,
     inputCalls,
     customCalls,
+    setIdle(value: boolean) {
+      idle = value;
+    },
   };
 
   return mockCtx;

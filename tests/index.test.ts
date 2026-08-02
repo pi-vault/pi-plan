@@ -96,7 +96,7 @@ describe("/plan command", () => {
   it("warns and does nothing for stale Save plan menu action while busy", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
-    const ctx = createMockContext({ isIdle: false, selectResponses: [PLAN_MENU_LABELS.save] });
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.save] });
 
     const handler = mock.commands.get("plan")!.handler;
     await handler("", ctx.ctx); // on
@@ -112,6 +112,7 @@ describe("/plan command", () => {
       ctx,
     );
 
+    ctx.setIdle(false);
     await handler("", ctx.ctx); // stale save action
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -669,7 +670,7 @@ describe("session persistence", () => {
 });
 
 describe("before_agent_start", () => {
-  it("injects a pending plan once after restoring disabled state", async () => {
+  it("clears and persists restored cache on the next normal turn without a handoff", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
     const ctx = createMockContext({
@@ -687,30 +688,18 @@ describe("before_agent_start", () => {
 
     await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
 
-    const first = await mock.fireEvent(
+    const result = await mock.fireEvent(
       "before_agent_start",
       { type: "before_agent_start", systemPrompt: "base prompt" },
       ctx,
     );
-    expect((first as { systemPrompt: string }).systemPrompt).toContain("base prompt");
-    expect((first as { systemPrompt: string }).systemPrompt).toContain("[PLAN HANDOFF]");
-    expect((first as { systemPrompt: string }).systemPrompt).toContain(
-      "The latest proposed plan is available for this turn as context. Follow the current user request; do not implement the plan unless asked.",
-    );
-    expect((first as { systemPrompt: string }).systemPrompt).toContain("# Restored Plan");
 
-    const second = await mock.fireEvent(
-      "before_agent_start",
-      { type: "before_agent_start", systemPrompt: "base prompt" },
-      ctx,
-    );
-    expect(second).toBeUndefined();
-
+    expect(result).toBeUndefined();
     const persisted = mock.entries.filter((entry) => entry.customType === "plan-mode-state");
     expect(persisted.at(-1)?.data).toMatchObject({ latestPlan: undefined, awaitingAction: false });
   });
 
-  it("discards a pending plan when /plan re-enters plan mode", async () => {
+  it("keeps cached plan actions across exit and re-entry until the next turn", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
     const ctx = createMockContext({
@@ -718,26 +707,33 @@ describe("before_agent_start", () => {
         {
           type: "custom",
           customType: "plan-mode-state",
-          data: { enabled: false, latestPlan: "# Pending Plan", awaitingAction: true },
+          data: { enabled: true, latestPlan: "# Pending Plan", awaitingAction: true },
           id: "1",
           parentId: null,
           timestamp: new Date().toISOString(),
         },
       ],
+      selectResponses: [PLAN_MENU_LABELS.stay],
     });
-
     await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
+
+    await mock.commands.get("plan:exit")!.handler("", ctx.ctx);
     await mock.commands.get("plan")!.handler("", ctx.ctx);
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    expect(ctx.selectCalls[0]?.options).toContain(PLAN_MENU_LABELS.implement);
+    expect(ctx.selectCalls[0]?.options).toContain(PLAN_MENU_LABELS["show-plan"]);
 
     const result = await mock.fireEvent(
       "before_agent_start",
       { type: "before_agent_start", systemPrompt: "base prompt" },
       ctx,
     );
-    const { systemPrompt } = result as { systemPrompt: string };
-    expect(systemPrompt).toContain("[PLAN MODE ACTIVE]");
-    expect(systemPrompt).not.toContain("[PLAN HANDOFF]");
-    expect(systemPrompt).not.toContain("# Pending Plan");
+
+    expect((result as { systemPrompt: string }).systemPrompt).toContain("[PLAN MODE ACTIVE]");
+    const persisted = mock.entries.filter((entry) => entry.customType === "plan-mode-state");
+    expect(persisted.at(-1)?.data).toMatchObject({ latestPlan: undefined, awaitingAction: false });
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
   });
 
   it("injects plan mode prompt when plan mode is enabled", async () => {
@@ -1080,37 +1076,42 @@ describe("plan menu actions", () => {
 
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
     expect(mock.userMessages).toHaveLength(1);
-    expect(mock.userMessages[0].content).toBe(
-      "Plan mode is now disabled. Full tool access is restored. Implement this proposed plan now:\n\n# My Plan\n## Summary\nBuild the thing",
-    );
+    expect(mock.userMessages[0].content).toBe("Implement the plan.");
     expect(ctx.inputCalls).toHaveLength(0);
     const persisted = mock.entries.filter((entry) => entry.customType === "plan-mode-state");
     expect(persisted.at(-1)?.data).toMatchObject({ latestPlan: undefined, awaitingAction: false });
   });
 
-  it("implement: queues the full plan as a follow-up when busy", async () => {
+  it("queues the implementation and consumes the plan only when settled", async () => {
     const mock = createMockPi();
     createExtension(mock.pi);
-    const ctx = createMockContext({
-      isIdle: false,
-      selectResponses: [PLAN_MENU_LABELS.implement],
-    });
     const plan = "# Queued Plan\n\n## Details\nKeep every line.";
+    const ctx = createMockContext({
+      selectResponses: [PLAN_MENU_LABELS.implement],
+      entries: [
+        {
+          type: "custom",
+          customType: "plan-mode-state",
+          data: { enabled: true, latestPlan: plan, awaitingAction: true },
+          id: "queued-plan",
+          parentId: null,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    });
+    await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
 
-    const handler = mock.commands.get("plan")!.handler;
-    await handler("", ctx.ctx);
-    await mock.fireEvent(
-      "agent_end",
-      {
-        type: "agent_end",
-        messages: [assistantText(`<proposed_plan>\n${plan}\n</proposed_plan>`)],
-      },
-      ctx,
-    );
-    await handler("", ctx.ctx);
+    ctx.setIdle(false);
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
 
-    expect(mock.userMessages[0].content).toContain(plan);
-    expect(mock.userMessages[0].options).toEqual({ deliverAs: "followUp" });
+    expect(mock.activeTools).not.toContain("write");
+    expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
+    expect(mock.userMessages).toHaveLength(0);
+
+    ctx.setIdle(true);
+    await mock.fireEvent("agent_settled", { type: "agent_settled" }, ctx);
+
+    expect(mock.userMessages).toEqual([{ content: "Implement the plan.", options: undefined }]);
     const persisted = mock.entries.filter((entry) => entry.customType === "plan-mode-state");
     expect(persisted.at(-1)?.data).toMatchObject({ latestPlan: undefined, awaitingAction: false });
   });
@@ -1180,6 +1181,155 @@ describe("plan menu actions", () => {
 
 });
 
+describe("deferred mode transitions", () => {
+  it("queues plan entry and its prompt until agent_settled", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    const initialTools = [...mock.activeTools];
+    ctx.setIdle(false);
+
+    await mock.commands.get("plan")!.handler("draft a migration plan", ctx.ctx);
+
+    expect(mock.activeTools).toEqual(initialTools);
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+    expect(mock.userMessages).toHaveLength(0);
+
+    ctx.setIdle(true);
+    await mock.fireEvent("agent_settled", { type: "agent_settled" }, ctx);
+
+    expect(mock.activeTools).not.toContain("write");
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+    expect(mock.userMessages).toEqual([
+      { content: "draft a migration plan", options: undefined },
+    ]);
+  });
+
+  it("queues plan exit without changing current tools or state", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    const planTools = [...mock.activeTools];
+    ctx.setIdle(false);
+
+    await mock.commands.get("plan:exit")!.handler("", ctx.ctx);
+
+    expect(mock.activeTools).toEqual(planTools);
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+
+    ctx.setIdle(true);
+    await mock.fireEvent("agent_settled", { type: "agent_settled" }, ctx);
+
+    expect(mock.activeTools).toContain("write");
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+  });
+
+  it("sends an already-active Plan prompt as an immediate follow-up", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    ctx.setIdle(false);
+
+    await mock.commands.get("plan")!.handler("refine the plan", ctx.ctx);
+
+    expect(mock.userMessages).toEqual([
+      { content: "refine the plan", options: { deliverAs: "followUp" } },
+    ]);
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+  });
+
+  it("lets the latest request cancel a queued entry", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({ isIdle: false });
+    const initialTools = [...mock.activeTools];
+
+    await mock.commands.get("plan")!.handler("obsolete prompt", ctx.ctx);
+    await mock.commands.get("plan:exit")!.handler("", ctx.ctx);
+    ctx.setIdle(true);
+    await mock.fireEvent("agent_settled", { type: "agent_settled" }, ctx);
+
+    expect(mock.activeTools).toEqual(initialTools);
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+    expect(mock.userMessages).toHaveLength(0);
+  });
+
+  it("warns instead of opening tool configuration while busy", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({ isIdle: false });
+
+    await mock.commands.get("plan:tools")!.handler("", ctx.ctx);
+
+    expect(ctx.customCalls).toHaveLength(0);
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+    expect(ctx.notifications).toContainEqual({
+      message: "Plan-mode tool configuration is unavailable while Pi is busy.",
+      type: "warning",
+    });
+  });
+
+  it("lets /plan cancel a queued exit without opening the menu", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext();
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    ctx.setIdle(false);
+
+    await mock.commands.get("plan:exit")!.handler("", ctx.ctx);
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+
+    expect(ctx.selectCalls).toHaveLength(0);
+    ctx.setIdle(true);
+    await mock.fireEvent("agent_settled", { type: "agent_settled" }, ctx);
+    expect(ctx.statuses.get("pi-plan")).toBe("plan active");
+    expect(mock.activeTools).not.toContain("write");
+  });
+
+  it("finishes Save-plan cleanup before applying a queued exit", async () => {
+    const mock = createMockPi();
+    const setActiveTools = vi.spyOn(mock.pi, "setActiveTools");
+    createExtension(mock.pi);
+    const ctx = createMockContext({ selectResponses: [PLAN_MENU_LABELS.save] });
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    await mock.fireEvent(
+      "agent_end",
+      {
+        type: "agent_end",
+        messages: [assistantText("<proposed_plan>\n# Save Me\n</proposed_plan>")],
+      },
+      ctx,
+    );
+    await mock.commands.get("plan")!.handler("", ctx.ctx);
+    ctx.setIdle(false);
+    await mock.commands.get("plan:exit")!.handler("", ctx.ctx);
+
+    ctx.setIdle(true);
+    await mock.fireEvent("agent_settled", { type: "agent_settled" }, ctx);
+
+    expect(setActiveTools.mock.calls.at(-2)?.[0]).not.toContain("write");
+    expect(setActiveTools.mock.calls.at(-1)?.[0]).toContain("write");
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+  });
+
+  it("drops a queued transition on session shutdown", async () => {
+    const mock = createMockPi();
+    createExtension(mock.pi);
+    const ctx = createMockContext({ isIdle: false });
+
+    await mock.commands.get("plan")!.handler("queued prompt", ctx.ctx);
+    await mock.fireEvent("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
+    ctx.setIdle(true);
+    await mock.fireEvent("agent_settled", { type: "agent_settled" }, ctx);
+
+    expect(ctx.statuses.get("pi-plan")).toBeUndefined();
+    expect(mock.activeTools).toContain("write");
+    expect(mock.userMessages).toHaveLength(0);
+  });
+});
+
 describe("/plan <prompt>", () => {
   it("enters plan mode and sends the prompt as a user message", async () => {
     const mock = createMockPi();
@@ -1245,7 +1395,7 @@ describe("agent_end auto-show menu", () => {
     expect(ctx.selectCalls).toHaveLength(1);
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
     expect(mock.userMessages).toHaveLength(1);
-    expect(mock.userMessages[0].content as string).toContain("# Auto Plan");
+    expect(mock.userMessages[0].content).toBe("Implement the plan.");
   });
 
   it("cancels auto-menu when user manually invokes /plan first", async () => {
@@ -1641,8 +1791,7 @@ describe("plan save lifecycle", () => {
       { type: "before_agent_start", systemPrompt: "base prompt" },
       ctx,
     );
-    expect((result as { systemPrompt: string }).systemPrompt).toContain("[PLAN HANDOFF]");
-    expect((result as { systemPrompt: string }).systemPrompt).not.toContain("[PLAN SAVE TURN]");
+    expect(result).toBeUndefined();
   });
 
   it("restores ordinary plan tools and clears UI on session shutdown during save turn", async () => {
