@@ -1,6 +1,6 @@
 {
   "name": "@pi-vault/pi-plan",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "description": "Pi extension that adds plan mode for read-only codebase exploration, decision-complete planning, and explicit implementation handoff",
   "author": "Lanh Hoang <lanhhoang@users.noreply.github.com>",
