@@ -1,4 +1,10 @@
-import { type Component, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  type Component,
+  Key,
+  matchesKey,
+  truncateToWidth,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import { getToolPolicy, planModeToolNames, type PlanToolInfo } from "../core/tools.ts";
 import { TOOL_SELECTOR_PAGE_SIZE } from "../shared/constants.ts";
 
@@ -6,8 +12,7 @@ const SAFE_PLAN_TOOL_NAMES = new Set(planModeToolNames());
 const LABEL_COLUMN_WIDTH = 24;
 const LAYOUT_GAP = "  ";
 const MIN_POLICY_WIDTH = 12;
-const HELP_BASE =
-  "Toggle: Space  •  Navigate: ↑/↓  •  Page: ←/→  •  Save: Enter  •  Cancel: Esc";
+const HELP_BASE = "Toggle: Space  •  Navigate: ↑/↓  •  Page: ←/→  •  Save: Enter  •  Cancel: Esc";
 const HELP_SEARCHING =
   "Toggle: Space  •  Navigate: ↑/↓  •  Cursor: ←/→  •  Save: Enter  •  Cancel: Esc";
 const SUBTITLE = "Optional tools run at user risk.";
@@ -205,9 +210,7 @@ export function createToolSelectorComponent(options: {
       }
       if (/^[\x20-\x7E]$/.test(data) && !matchesKey(data, Key.space)) {
         const query =
-          state.query.slice(0, state.queryCursor) +
-          data +
-          state.query.slice(state.queryCursor);
+          state.query.slice(0, state.queryCursor) + data + state.query.slice(state.queryCursor);
         const nextState = { ...state, query, queryCursor: state.queryCursor + 1 };
         state = { ...nextState, cursorIndex: clampCursor(nextState, state.cursorIndex) };
       }

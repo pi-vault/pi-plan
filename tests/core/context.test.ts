@@ -1,18 +1,13 @@
 import type { AgentEndEvent, ContextEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import {
-  captureProposedPlan,
-  filterLegacyProposedPlanMessages,
-} from "../../src/core/context.ts";
+import { captureProposedPlan, filterLegacyProposedPlanMessages } from "../../src/core/context.ts";
 
 type AgentMessage = ContextEvent["messages"][number];
 type AssistantMessage = Extract<AgentEndEvent["messages"][number], { role: "assistant" }>;
 type UserMessage = Extract<AgentMessage, { role: "user" }>;
 type CustomMessage = Extract<AgentMessage, { role: "custom" }>;
 
-function assistant(
-  content: AssistantMessage["content"],
-): AssistantMessage {
+function assistant(content: AssistantMessage["content"]): AssistantMessage {
   return {
     role: "assistant",
     content,
@@ -63,16 +58,20 @@ describe("captureProposedPlan", () => {
 
   it("accepts standalone tags with case, horizontal whitespace, and CRLF", () => {
     expect(
-      captureProposedPlan([
-        assistantText("  <PROPOSED_PLAN>  \r\n# Plan\r\n  </PROPOSED_PLAN>  "),
-      ]),
+      captureProposedPlan([assistantText("  <PROPOSED_PLAN>  \r\n# Plan\r\n  </PROPOSED_PLAN>  ")]),
     ).toBe("# Plan");
   });
 
   it("returns undefined for empty, same-line, malformed, or absent blocks", () => {
-    expect(captureProposedPlan([assistantText("<proposed_plan>\n  \n</proposed_plan>")])).toBeUndefined();
-    expect(captureProposedPlan([assistantText("<proposed_plan># Inline</proposed_plan>")])).toBeUndefined();
-    expect(captureProposedPlan([assistantText("<proposed_plan>\n# Missing close")])).toBeUndefined();
+    expect(
+      captureProposedPlan([assistantText("<proposed_plan>\n  \n</proposed_plan>")]),
+    ).toBeUndefined();
+    expect(
+      captureProposedPlan([assistantText("<proposed_plan># Inline</proposed_plan>")]),
+    ).toBeUndefined();
+    expect(
+      captureProposedPlan([assistantText("<proposed_plan>\n# Missing close")]),
+    ).toBeUndefined();
     expect(captureProposedPlan([assistantText("No plan")])).toBeUndefined();
   });
 

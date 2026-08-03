@@ -2,7 +2,7 @@
 
 All notable changes to `@pi-vault/pi-plan` are documented in this file.
 
-## [Unreleased]
+## [0.5.0] - 2026-08-03
 
 ### Added
 
