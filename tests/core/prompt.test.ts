@@ -36,12 +36,8 @@ describe("buildPlanModePrompt", () => {
   });
 
   it("names the enabled mutation tools when selected", () => {
-    expect(buildPlanModePrompt(["edit"])).toContain(
-      "Enabled mutation tools: edit.",
-    );
-    expect(buildPlanModePrompt(["write"])).toContain(
-      "Enabled mutation tools: write.",
-    );
+    expect(buildPlanModePrompt(["edit"])).toContain("Enabled mutation tools: edit.");
+    expect(buildPlanModePrompt(["write"])).toContain("Enabled mutation tools: write.");
     expect(buildPlanModePrompt(["edit", "write"])).toContain(
       "Enabled mutation tools: edit, write.",
     );

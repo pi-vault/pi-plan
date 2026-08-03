@@ -1,13 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { PlanModeState } from "../shared/types.ts";
 
-export type PlanMenuAction =
-  | "implement"
-  | "save"
-  | "stay"
-  | "exit"
-  | "show-plan"
-  | "tools";
+export type PlanMenuAction = "implement" | "save" | "stay" | "exit" | "show-plan" | "tools";
 
 export const PLAN_MENU_LABELS: Record<PlanMenuAction, string> = {
   implement: "Implement this plan",

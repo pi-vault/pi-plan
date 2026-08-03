@@ -4,10 +4,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Key } from "@earendil-works/pi-tui";
-import {
-  captureProposedPlan,
-  filterLegacyProposedPlanMessages,
-} from "./core/context.ts";
+import { captureProposedPlan, filterLegacyProposedPlanMessages } from "./core/context.ts";
 import { buildPlanModePrompt } from "./core/prompt.ts";
 import { createSavePlanSession } from "./core/save-plan.ts";
 import { isSafeCommand } from "./core/safety.ts";
@@ -21,11 +18,7 @@ import {
   safeGetAllTools,
   writeSelectedToolNames,
 } from "./core/tools.ts";
-import {
-  STATE_ENTRY_TYPE,
-  STATUS_KEY,
-  WIDGET_KEY,
-} from "./shared/constants.ts";
+import { STATE_ENTRY_TYPE, STATUS_KEY, WIDGET_KEY } from "./shared/constants.ts";
 import type { PlanModeState } from "./shared/types.ts";
 import { type PlanMenuAction, showPlanMenu, showPlanReadyMenu } from "./tui/menus.ts";
 import { createToolSelectorComponent } from "./tui/tool-selector.ts";
@@ -65,10 +58,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     ctx.ui.setWidget(
       WIDGET_KEY,
       ready
-        ? [
-            "Proposed plan ready",
-            "Use /plan to implement, revise, or exit Plan mode.",
-          ]
+        ? ["Proposed plan ready", "Use /plan to implement, revise, or exit Plan mode."]
         : ["Plan mode: planning", "Produce a <proposed_plan> block."],
     );
   }
@@ -117,10 +107,7 @@ export default function createExtension(pi: ExtensionAPI): void {
     pi.sendUserMessage(content, ctx.isIdle() ? undefined : { deliverAs: "followUp" });
   }
 
-  function applyModeTransition(
-    transition: PendingModeTransition,
-    ctx: ExtensionContext,
-  ): void {
+  function applyModeTransition(transition: PendingModeTransition, ctx: ExtensionContext): void {
     if (transition.enabled !== state.enabled) {
       if (transition.enabled) doEnter(ctx);
       else doExit(ctx);

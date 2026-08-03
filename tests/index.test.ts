@@ -1,11 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type {
@@ -20,9 +13,7 @@ import { createMockContext, createMockPi } from "./helpers.ts";
 
 type AssistantMessage = Extract<AgentEndEvent["messages"][number], { role: "assistant" }>;
 
-function assistantText(
-  text: string,
-): Pick<AssistantMessage, "role" | "content"> {
+function assistantText(text: string): Pick<AssistantMessage, "role" | "content"> {
   return { role: "assistant", content: [{ type: "text", text }] };
 }
 
@@ -37,9 +28,7 @@ describe("createExtension", () => {
     createExtension(mock.pi);
     expect(mock.flags.has("plan")).toBe(true);
     expect(mock.flags.get("plan")?.type).toBe("boolean");
-    expect(mock.flags.get("plan")?.description).toBe(
-      "Start in plan mode (read-only by default)",
-    );
+    expect(mock.flags.get("plan")?.description).toBe("Start in plan mode (read-only by default)");
   });
 
   it("registers plan, plan:exit, and plan:tools commands", () => {
@@ -99,9 +88,7 @@ describe("/plan command", () => {
     expect(mock.userMessages).toHaveLength(0);
     expect(ctx.statuses.get("pi-plan")).toBe("plan active");
     expect(
-      ctx.notifications.some(
-        (n) => n.type === "warning" && n.message.includes("latest plan"),
-      ),
+      ctx.notifications.some((n) => n.type === "warning" && n.message.includes("latest plan")),
     ).toBe(true);
   });
 
@@ -117,9 +104,7 @@ describe("/plan command", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [
-          assistantText("<proposed_plan>\n# Plan\n</proposed_plan>"),
-        ],
+        messages: [assistantText("<proposed_plan>\n# Plan\n</proposed_plan>")],
       },
       ctx,
     );
@@ -130,9 +115,7 @@ describe("/plan command", () => {
 
     expect(mock.userMessages).toHaveLength(0);
     expect(ctx.statuses.get("pi-plan")).toBe("plan ready");
-    expect(
-      ctx.notifications.some((n) => n.type === "warning" && n.message.includes("busy")),
-    ).toBe(
+    expect(ctx.notifications.some((n) => n.type === "warning" && n.message.includes("busy"))).toBe(
       true,
     );
   });
@@ -183,9 +166,7 @@ describe("/plan:exit command", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [
-          assistantText("<proposed_plan>\n# Plan\n</proposed_plan>"),
-        ],
+        messages: [assistantText("<proposed_plan>\n# Plan\n</proposed_plan>")],
       },
       ctx,
     );
@@ -530,7 +511,9 @@ describe("write save preflight", () => {
 
     expect(test.mock.activeTools).not.toContain("write");
     expect(
-      test.ctx.notifications.some((n) => n.type === "warning" && n.message.includes("Save plan failed")),
+      test.ctx.notifications.some(
+        (n) => n.type === "warning" && n.message.includes("Save plan failed"),
+      ),
     ).toBe(false);
     expect(test.ctx.statuses.get("pi-plan")).toBe("plan ready");
   });
@@ -897,7 +880,9 @@ describe("agent_end", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [{ role: "assistant", content: [{ type: "text", text: "Just some text, no plan yet." }] }],
+        messages: [
+          { role: "assistant", content: [{ type: "text", text: "Just some text, no plan yet." }] },
+        ],
       },
       ctx,
     );
@@ -1002,11 +987,7 @@ describe("Plan mode UI", () => {
       ],
     });
 
-    await mock.fireEvent(
-      "session_start",
-      { type: "session_start", reason: "resume" },
-      ctx,
-    );
+    await mock.fireEvent("session_start", { type: "session_start", reason: "resume" }, ctx);
     return ctx;
   }
 
@@ -1139,9 +1120,7 @@ describe("plan menu actions", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [
-          assistantText("<proposed_plan>\n# Plan\n</proposed_plan>"),
-        ],
+        messages: [assistantText("<proposed_plan>\n# Plan\n</proposed_plan>")],
       },
       ctx,
     );
@@ -1179,9 +1158,7 @@ describe("plan menu actions", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [
-          assistantText("<proposed_plan>\n# My Plan\n</proposed_plan>"),
-        ],
+        messages: [assistantText("<proposed_plan>\n# My Plan\n</proposed_plan>")],
       },
       ctx,
     );
@@ -1190,7 +1167,6 @@ describe("plan menu actions", () => {
 
     expect(ctx.notifications.some((n) => n.message.includes("# My Plan"))).toBe(true);
   });
-
 });
 
 describe("deferred mode transitions", () => {
@@ -1217,9 +1193,7 @@ describe("deferred mode transitions", () => {
     finishLaterHandler?.();
     await settlement;
     await Promise.resolve();
-    expect(mock.userMessages).toEqual([
-      { content: "draft a migration plan", options: undefined },
-    ]);
+    expect(mock.userMessages).toEqual([{ content: "draft a migration plan", options: undefined }]);
   });
 
   it("warns when a busy auto-menu action cannot wait for full settlement", async () => {
@@ -1266,9 +1240,7 @@ describe("deferred mode transitions", () => {
 
     expect(mock.activeTools).not.toContain("write");
     expect(ctx.statuses.get("pi-plan")).toBe("plan active");
-    expect(mock.userMessages).toEqual([
-      { content: "draft a migration plan", options: undefined },
-    ]);
+    expect(mock.userMessages).toEqual([{ content: "draft a migration plan", options: undefined }]);
   });
 
   it("queues plan exit without changing current tools or state", async () => {
@@ -1446,9 +1418,7 @@ describe("agent_end auto-show menu", () => {
       {
         type: "agent_end",
         messages: [
-          assistantText(
-            "<proposed_plan>\n# Auto Plan\n## Summary\nDo the thing\n</proposed_plan>",
-          ),
+          assistantText("<proposed_plan>\n# Auto Plan\n## Summary\nDo the thing\n</proposed_plan>"),
         ],
       },
       ctx,
@@ -1477,9 +1447,7 @@ describe("agent_end auto-show menu", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [
-          assistantText("<proposed_plan>\n# Plan\n</proposed_plan>"),
-        ],
+        messages: [assistantText("<proposed_plan>\n# Plan\n</proposed_plan>")],
       },
       ctx,
     );
@@ -1660,9 +1628,7 @@ describe("/plan:tools command", () => {
 describe("plan save lifecycle", () => {
   it("sends the full captured plan and restricts tools for a save turn", async () => {
     const mock = createMockPi({
-      allTools: [
-        { name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } },
-      ],
+      allTools: [{ name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } }],
     });
     createExtension(mock.pi);
     const ctx = createMockContext({
@@ -1677,9 +1643,7 @@ describe("plan save lifecycle", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [
-          assistantText("<proposed_plan>\n# Ship It\n\nDetails\n</proposed_plan>"),
-        ],
+        messages: [assistantText("<proposed_plan>\n# Ship It\n\nDetails\n</proposed_plan>")],
       },
       ctx,
     );
@@ -1701,9 +1665,7 @@ describe("plan save lifecycle", () => {
 
   it("uses the narrow save-turn prompt and suppresses optional tools", async () => {
     const mock = createMockPi({
-      allTools: [
-        { name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } },
-      ],
+      allTools: [{ name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } }],
     });
     createExtension(mock.pi);
     const ctx = createMockContext({
@@ -1717,9 +1679,7 @@ describe("plan save lifecycle", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [
-          assistantText("<proposed_plan>\n# Saved Plan\n</proposed_plan>"),
-        ],
+        messages: [assistantText("<proposed_plan>\n# Saved Plan\n</proposed_plan>")],
       },
       ctx,
     );
@@ -1751,9 +1711,7 @@ describe("plan save lifecycle", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [
-          assistantText("<proposed_plan>\n# Original Plan\n</proposed_plan>"),
-        ],
+        messages: [assistantText("<proposed_plan>\n# Original Plan\n</proposed_plan>")],
       },
       ctx,
     );
@@ -1763,9 +1721,7 @@ describe("plan save lifecycle", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [
-          assistantText("<proposed_plan>\n# Replacement Plan\n</proposed_plan>"),
-        ],
+        messages: [assistantText("<proposed_plan>\n# Replacement Plan\n</proposed_plan>")],
       },
       ctx,
     );
@@ -1785,9 +1741,7 @@ describe("plan save lifecycle", () => {
 
   it("warns and restores ordinary plan tools when the save turn settles without success", async () => {
     const mock = createMockPi({
-      allTools: [
-        { name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } },
-      ],
+      allTools: [{ name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } }],
     });
     createExtension(mock.pi);
     const ctx = createMockContext({
@@ -1801,9 +1755,7 @@ describe("plan save lifecycle", () => {
       "agent_end",
       {
         type: "agent_end",
-        messages: [
-          assistantText("<proposed_plan>\n# Save Me\n</proposed_plan>"),
-        ],
+        messages: [assistantText("<proposed_plan>\n# Save Me\n</proposed_plan>")],
       },
       ctx,
     );
@@ -1827,9 +1779,7 @@ describe("plan save lifecycle", () => {
   it("restores full previous tools and clears save-turn state on exit", async () => {
     const mock = createMockPi({
       activeTools: ["read", "bash", "edit", "write", "custom-before"],
-      allTools: [
-        { name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } },
-      ],
+      allTools: [{ name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } }],
     });
     createExtension(mock.pi);
     const ctx = createMockContext({
@@ -1862,9 +1812,7 @@ describe("plan save lifecycle", () => {
 
   it("restores ordinary plan tools and clears UI on session shutdown during save turn", async () => {
     const mock = createMockPi({
-      allTools: [
-        { name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } },
-      ],
+      allTools: [{ name: "my-search", description: "Search", sourceInfo: { source: "my-ext" } }],
     });
     createExtension(mock.pi);
     const ctx = createMockContext({
@@ -1928,9 +1876,7 @@ describe("Ctrl+Alt+P shortcut", () => {
     const handler = mock.shortcuts.get("ctrl+alt+p")!.handler;
     await handler(shortcutContext(ctx.ctx));
     expect(ctx.statuses.get("pi-plan")).toBeUndefined();
-    expect(
-      ctx.notifications.some((n) => n.message.includes("queued")),
-    ).toBe(true);
+    expect(ctx.notifications.some((n) => n.message.includes("queued"))).toBe(true);
 
     ctx.setIdle(true);
     await mock.fireEvent("agent_settled", { type: "agent_settled" }, ctx);

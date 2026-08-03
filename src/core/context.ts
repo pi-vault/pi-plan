@@ -1,7 +1,4 @@
-import type {
-  AgentEndEvent,
-  ContextEvent,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentEndEvent, ContextEvent } from "@earendil-works/pi-coding-agent";
 import { PROPOSED_PLAN_MESSAGE_TYPE } from "../shared/constants.ts";
 
 const PLAN_BLOCK_PATTERN =
@@ -16,9 +13,7 @@ function assistantText(message: AssistantMessage): string {
     .join("\n");
 }
 
-export function captureProposedPlan(
-  messages: AgentEndEvent["messages"],
-): string | undefined {
+export function captureProposedPlan(messages: AgentEndEvent["messages"]): string | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role === "assistant") {
@@ -33,8 +28,7 @@ export function filterLegacyProposedPlanMessages(
   messages: ContextEvent["messages"],
 ): { messages: ContextEvent["messages"] } | undefined {
   const filtered = messages.filter(
-    (message) =>
-      message.role !== "custom" || message.customType !== PROPOSED_PLAN_MESSAGE_TYPE,
+    (message) => message.role !== "custom" || message.customType !== PROPOSED_PLAN_MESSAGE_TYPE,
   );
 
   return filtered.length === messages.length ? undefined : { messages: filtered };

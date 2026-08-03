@@ -1,10 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import {
-  getAgentDir,
-  type ExtensionAPI,
-  type ToolInfo,
-} from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI, type ToolInfo } from "@earendil-works/pi-coding-agent";
 
 const SAFE_PLAN_TOOL_NAMES = ["read", "bash", "grep", "find", "ls"];
 const SAFE_PLAN_TOOL_NAME_SET = new Set(SAFE_PLAN_TOOL_NAMES);
@@ -54,15 +50,11 @@ export function planModeToolNames(selected: string[] = []): string[] {
 }
 
 export function savePlanToolNames(writeAvailable: boolean): string[] {
-  return writeAvailable
-    ? [...SAFE_PLAN_TOOL_NAMES, "write"]
-    : [...SAFE_PLAN_TOOL_NAMES];
+  return writeAvailable ? [...SAFE_PLAN_TOOL_NAMES, "write"] : [...SAFE_PLAN_TOOL_NAMES];
 }
 
 export function normalModeToolNames(previous?: string[]): string[] {
-  return previous && previous.length > 0
-    ? [...previous]
-    : [...NORMAL_MODE_TOOL_NAMES];
+  return previous && previous.length > 0 ? [...previous] : [...NORMAL_MODE_TOOL_NAMES];
 }
 
 export function safeGetAllTools(pi: ExtensionAPI): ToolInfo[] {
@@ -88,16 +80,11 @@ function configFilePath(): string {
 export async function readSelectedToolNames(): Promise<string[] | undefined> {
   try {
     const parsed = JSON.parse(await readFile(configFilePath(), "utf-8"));
-    if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object")
-      return undefined;
-    const entries = Object.entries(parsed).filter(
-      ([, value]) => typeof value === "boolean",
-    );
+    if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") return undefined;
+    const entries = Object.entries(parsed).filter(([, value]) => typeof value === "boolean");
     if (entries.length === 0) return undefined;
     return entries
-      .filter(
-        ([name, enabled]) => enabled && !SAFE_PLAN_TOOL_NAME_SET.has(name),
-      )
+      .filter(([name, enabled]) => enabled && !SAFE_PLAN_TOOL_NAME_SET.has(name))
       .map(([name]) => name);
   } catch {
     return undefined;
